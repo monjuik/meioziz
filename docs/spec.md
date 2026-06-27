@@ -25,7 +25,7 @@ External app sends events via `POST /v1/event`. Example:
 }
 ```
 `value` is integer and optional.
-`installID` is optional.
+`installId` is optional.
 
 ## HTTP Endpoints
 

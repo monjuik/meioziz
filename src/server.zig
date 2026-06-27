@@ -2,6 +2,7 @@ const std = @import("std");
 const Socket = std.Io.net.Socket;
 const Protocol = std.Io.net.Protocol;
 const Config = @import("config.zig").Config;
+const event = @import("event.zig");
 
 const Route = enum {
     index,
@@ -9,6 +10,12 @@ const Route = enum {
     login,
     app,
 };
+
+const text_plain_headers = [_]std.http.Header{
+    .{ .name = "content-type", .value = "text/plain" },
+};
+
+const max_event_body_size = 16 * 1024;
 
 pub const Server = struct {
     host: []const u8,
@@ -49,20 +56,52 @@ pub const Server = struct {
         var request = try http_server.receiveHead();
         const route = matchRoute(request.head.method, request.head.target);
 
-        if (route) |_| {
-            try request.respond("ok\n", .{
-                .status = .ok,
-                .extra_headers = &.{
-                    .{ .name = "content-type", .value = "text/plain" },
-                },
-            });
-        } else {
-            try request.respond("not found\n", .{
-                .status = .not_found,
-                .extra_headers = &.{
-                    .{ .name = "content-type", .value = "text/plain" },
-                },
-            });
+        const matched_route = route orelse {
+            try respondNotFound(&request);
+            return;
+        };
+
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+
+        switch (matched_route) {
+            .event => {
+                const content_length = request.head.content_length orelse {
+                    try respondBadRequest(&request);
+                    return;
+                };
+
+                if (content_length > max_event_body_size) {
+                    try respondBadRequest(&request);
+                    return;
+                }
+
+                var body_buffer: [4096]u8 = undefined;
+                var body_reader = request.readerExpectNone(&body_buffer);
+                const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
+                    try respondBadRequest(&request);
+                    return;
+                };
+
+                _ = event.parse(allocator, body) catch {
+                    try respondBadRequest(&request);
+                    return;
+                };
+
+                try request.respond("", .{
+                    .status = .no_content,
+                    .keep_alive = false,
+                });
+            },
+            else => {
+                try request.respond("ok\n", .{
+                    .status = .ok,
+                    .keep_alive = false,
+                    .extra_headers = &text_plain_headers,
+                });
+            },
         }
     }
 
@@ -86,6 +125,21 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
     }
 
     return null;
+}
+
+fn respondBadRequest(request: *std.http.Server.Request) !void {
+    try request.respond("bad request\n", .{
+        .status = .bad_request,
+        .keep_alive = false,
+        .extra_headers = &text_plain_headers,
+    });
+}
+fn respondNotFound(request: *std.http.Server.Request) !void {
+    try request.respond("not found\n", .{
+        .status = .not_found,
+        .keep_alive = false,
+        .extra_headers = &text_plain_headers,
+    });
 }
 
 test "match allowed routes" {
