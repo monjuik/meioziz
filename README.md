@@ -16,5 +16,4 @@ This app is very tiny, the events are tiny – as amoeba. Meiosis is a their rep
 
 ## How to build
 
-1. in main.zig use `smp_allocator` instead of `DebugAllocator`
-2. `zig build -Doptimize=ReleaseSafe`
+`zig build -Doptimize=ReleaseSafe`
