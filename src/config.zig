@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Config = struct {
     port: u16 = 8123,
+    database: [*:0]const u8 = "meioziz.db",
 };
 
 const FileConfig = struct {

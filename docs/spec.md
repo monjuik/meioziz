@@ -62,27 +62,16 @@ Minimalistic Bootstrap and vanilla JS.
 
 ## DB Tables
 
-### Raw
+As project has so few tables, I called them in very compact way:
+- `raw` for raw events,
+- `daily` for daily aggregates,
+- `migration` is internal, for SQL migration scripts.
 
-- id
-- received
-- app
-- code
-- value
+See `src/db.zig`.
 
-### Daily
-
-- id
-- day
-- app
-- event
-- count
-- min
-- max
-- sum
-
-### Migration
-
-- id
-- file
-- executed
+Useful commands to work with the db:
+```bash
+sqlite3 'file:meioziz.db?mode=ro'
+sqlite> .tables
+sqlite> SELECT * FROM migration;
+```

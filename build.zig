@@ -4,6 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const zqlite = b.dependency("zqlite", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const exe = b.addExecutable(.{
         .name = "meioziz",
         .root_module = b.createModule(.{
@@ -12,6 +17,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    exe.root_module.addImport("zqlite", zqlite.module("zqlite"));
+    exe.root_module.link_libc = true;
 
     b.installArtifact(exe);
 
@@ -22,6 +30,9 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    unit_tests.root_module.addImport("zqlite", zqlite.module("zqlite"));
+    unit_tests.root_module.link_libc = true;
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
