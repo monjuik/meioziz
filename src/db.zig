@@ -1,5 +1,6 @@
 const std = @import("std");
 const zqlite = @import("zqlite");
+const event = @import("event.zig");
 
 const create_migration_table_sql =
     \\CREATE TABLE IF NOT EXISTS migration(
@@ -47,6 +48,28 @@ pub const Database = struct {
         for (migrations) |migration| {
             try self.applyMigration(migration);
         }
+    }
+
+    pub fn insertEvent(self: *Database, e: event.Event) !void {
+        try self.conn.exec(
+            \\INSERT INTO raw (
+            \\    received,
+            \\    app,
+            \\    code,
+            \\    value,
+            \\    install_id,
+            \\    data
+            \\) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ,
+            .{
+                self.nowMillis(),
+                e.app.key,
+                e.code,
+                e.value,
+                e.installId,
+                null,
+            },
+        );
     }
 
     fn isMigrationApplied(self: *Database, name: []const u8) !bool {

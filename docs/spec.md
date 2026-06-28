@@ -13,20 +13,6 @@ One self-efficient excutable file.
 
 I like Zig. Zig be it.
 
-## API 
-
-External app sends events via `POST /v1/event`. Example:
-
-```json
-{
-  "app": "pairception",
-  "code": "game-finished",
-  "value": 100
-}
-```
-`value` is integer and optional.
-`installId` is optional.
-
 ## HTTP Endpoints
 
 ```
@@ -42,24 +28,6 @@ GET  /app/:code
 Minimalistic Bootstrap and vanilla JS.
 
 
-## Config
-
-```zig
-.{
-    .port = 8080,
-
-    .admin_hash = "pbkdf2-sha256:...",
-
-    .apps = .{
-        .{
-            .name = "Pairception",
-            .key = "pairception",
-            .active = true,
-        },
-    },
-}
-```
-
 ## DB Tables
 
 As project has so few tables, I called them in very compact way:
@@ -72,6 +40,16 @@ See `src/db.zig`.
 Useful commands to work with the db:
 ```bash
 sqlite3 'file:meioziz.db?mode=ro'
+sqlite> .headers on
+sqlite> .mode box
 sqlite> .tables
 sqlite> SELECT * FROM migration;
 ```
+
+---
+
+## Tests with ab
+
+`printf '{"app":"pairception","code":"game-finished"}' > event.json`
+
+`ab -n 100000 -c 8 -p event.json -T application/json http://127.0.0.1:9000/v1/event`

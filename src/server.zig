@@ -3,6 +3,7 @@ const Socket = std.Io.net.Socket;
 const Protocol = std.Io.net.Protocol;
 const Config = @import("config.zig").Config;
 const event = @import("event.zig");
+const Database = @import("db.zig").Database;
 
 const Route = enum {
     index,
@@ -22,13 +23,15 @@ pub const Server = struct {
     port: u16,
     addr: std.Io.net.IpAddress,
     io: std.Io,
+    db: *Database,
+    config: Config,
 
-    pub fn init(io: std.Io, config: Config) !Server {
+    pub fn init(io: std.Io, config: Config, db: *Database) !Server {
         const host: []const u8 = "0.0.0.0";
         const port: u16 = config.port;
         const addr = try std.Io.net.IpAddress.parseIp4(host, port);
 
-        return .{ .host = host, .port = port, .addr = addr, .io = io };
+        return .{ .host = host, .port = port, .addr = addr, .io = io, .db = db, .config = config };
     }
 
     pub fn run(self: Server) !void {
@@ -53,7 +56,63 @@ pub const Server = struct {
         var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
 
         var request = try http_server.receiveHead();
-        try handleRequest(&request);
+        try self.handleRequest(&request);
+    }
+
+    fn handleRequest(self: Server, request: *std.http.Server.Request) !void {
+        const route = matchRoute(request.head.method, request.head.target) orelse {
+            try respondNotFound(request);
+            return;
+        };
+
+        switch (route) {
+            .event => try self.handleEvent(request),
+            .login => try handleLogin(request),
+            .index => try handleIndex(request),
+            .app => try handleApp(request),
+        }
+    }
+
+    fn handleEvent(self: Server, request: *std.http.Server.Request) !void {
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+
+        const content_length = request.head.content_length orelse {
+            try respondBadRequest(request);
+            return;
+        };
+
+        if (content_length > max_event_body_size) {
+            try respondBadRequest(request);
+            return;
+        }
+
+        var body_buffer: [4096]u8 = undefined;
+        var body_reader = request.readerExpectNone(&body_buffer);
+        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
+            try respondBadRequest(request);
+            return;
+        };
+
+        const event_request = event.parse(allocator, body) catch {
+            try respondBadRequest(request);
+            return;
+        };
+
+        const created_event = event.Event.init(&self.config, event_request) catch |err| {
+            std.log.err("invalid event: {any}", .{err});
+            try respondBadRequest(request);
+            return;
+        };
+        self.db.insertEvent(created_event) catch |err| {
+            std.log.err("failed to insert event: {any}", .{err});
+            try respondText(request, "internal server error\n", .internal_server_error);
+            return;
+        };
+
+        try respondNoContent(request);
     }
 
     pub fn listen(self: Server) !std.Io.net.Server {
@@ -76,51 +135,6 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
     }
 
     return null;
-}
-
-fn handleRequest(request: *std.http.Server.Request) !void {
-    const route = matchRoute(request.head.method, request.head.target) orelse {
-        try respondNotFound(request);
-        return;
-    };
-
-    switch (route) {
-        .event => try handleEvent(request),
-        .login => try handleLogin(request),
-        .index => try handleIndex(request),
-        .app => try handleApp(request),
-    }
-}
-
-fn handleEvent(request: *std.http.Server.Request) !void {
-    var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
-    defer request_arena.deinit();
-
-    const allocator = request_arena.allocator();
-
-    const content_length = request.head.content_length orelse {
-        try respondBadRequest(request);
-        return;
-    };
-
-    if (content_length > max_event_body_size) {
-        try respondBadRequest(request);
-        return;
-    }
-
-    var body_buffer: [4096]u8 = undefined;
-    var body_reader = request.readerExpectNone(&body_buffer);
-    const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
-        try respondBadRequest(request);
-        return;
-    };
-
-    _ = event.parse(allocator, body) catch {
-        try respondBadRequest(request);
-        return;
-    };
-
-    try respondNoContent(request);
 }
 
 fn handleIndex(request: *std.http.Server.Request) !void {

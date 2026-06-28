@@ -2,9 +2,14 @@
 
 Tiny privacy-first event stats for indie apps. Zig + SQLite. No user tracking.
 
+It's very ecological:
+- 2.5 Mb self-efficient binary,
+- 4 Mb used RAM,
+- less than 1ms for the REST API responses.
+
 ## What's in this name?
 
-This app is very tiny, the events are tiny – as amoeba. Meiosis is a their reproduction.
+This app is very tiny, the events are tiny – as amoeba's poke. Meiosis is a their reproduction.
 
 ## How to use
 
@@ -17,3 +22,41 @@ This app is very tiny, the events are tiny – as amoeba. Meiosis is a their rep
 ## How to build
 
 `zig build -Doptimize=ReleaseSafe`
+
+---
+
+## API
+
+External app sends events via `POST /v1/event`. Example:
+
+```json
+{
+  "app": "pairception",
+  "code": "game-finished",
+  "value": 100
+}
+```
+`value` is integer and optional.
+`installId` is optional.
+
+Valid characters for the `app` and `code`: 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', ' '.
+
+## Config
+
+`config.zon` in the working directory. Example:
+
+```zig
+.{
+    .port = 8080,
+
+    .admin_hash = "pbkdf2-sha256:...",
+
+    .apps = .{
+        .{
+            .name = "Pairception",
+            .key = "pairception",
+            .active = true,
+        },
+    },
+}
+```
