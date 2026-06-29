@@ -43,6 +43,8 @@ External app sends events via `POST /v1/event`. Example:
 
 Valid characters for the `app` and `code`: 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', ' '.
 
+Strings up to 128 symbols are supported.
+
 ## Config
 
 `config.zon` in the working directory. Example:
