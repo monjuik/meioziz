@@ -3,8 +3,8 @@
 Tiny privacy-first event stats for indie apps. Zig + SQLite. No user tracking.
 
 It's very ecological:
-- 2.5 Mb self-efficient binary,
-- 4 Mb used RAM,
+- 2.5 MB self-efficient binary,
+- 2.5 MB RAM with 10k daily events, (as SQLite keeps some indexes and cache in memory), 
 - less than 1ms for the REST API responses.
 
 ## What's in this name?

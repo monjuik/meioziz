@@ -14,6 +14,11 @@ const Migration = struct {
     sql: [:0]const u8,
 };
 
+pub const AppEventCount = struct {
+    app_key: []const u8,
+    count: i64,
+};
+
 pub const Database = struct {
     conn: zqlite.Conn,
     io: std.Io,
@@ -72,6 +77,33 @@ pub const Database = struct {
         );
     }
 
+    pub fn countEventsByAppSince(
+        self: *Database,
+        allocator: std.mem.Allocator,
+        since_ms: i64,
+    ) ![]AppEventCount {
+        var result: std.ArrayList(AppEventCount) = .empty;
+        errdefer result.deinit(allocator);
+
+        var rows = try self.conn.rows(
+            \\SELECT app, COUNT(*)
+            \\FROM raw
+            \\WHERE received >= ?1
+            \\GROUP BY app
+        ,
+            .{since_ms},
+        );
+        defer rows.deinit();
+
+        while (rows.next()) |row| {
+            try result.append(allocator, .{
+                .app_key = try allocator.dupe(u8, row.text(0)),
+                .count = row.int(1),
+            });
+        }
+        return try result.toOwnedSlice(allocator);
+    }
+
     fn isMigrationApplied(self: *Database, name: []const u8) !bool {
         const row = try self.conn.row(
             "SELECT name FROM migration WHERE name = ?1",
@@ -107,7 +139,7 @@ pub const Database = struct {
         std.log.info("Applied database migration: {s}", .{migration.name});
     }
 
-    fn nowMillis(self: *Database) i64 {
+    pub fn nowMillis(self: *Database) i64 {
         const now = std.Io.Clock.now(.real, self.io);
         return @intCast(@divTrunc(now.nanoseconds, 1_000_000));
     }
@@ -126,6 +158,12 @@ const migrations = [_]Migration{
         \\    install_id TEXT,
         \\    data TEXT
         \\);
+        ,
+    },
+    .{
+        .name = "002_create_raw_app_idx",
+        .sql =
+        \\CREATE INDEX raw_app_idx ON raw (app);
         ,
     },
 };

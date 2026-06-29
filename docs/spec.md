@@ -25,7 +25,7 @@ GET  /app/:code
 
 ## UI
 
-Minimalistic Bootstrap and vanilla JS.
+Minimalistic Bootstrap and ApexCharts for the charts.
 
 
 ## DB Tables

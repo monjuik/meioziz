@@ -1,9 +1,11 @@
 const std = @import("std");
 const Socket = std.Io.net.Socket;
 const Protocol = std.Io.net.Protocol;
-const Config = @import("config.zig").Config;
+const config = @import("config.zig");
+const Config = config.Config;
 const event = @import("event.zig");
-const Database = @import("db.zig").Database;
+const db = @import("db.zig");
+const Database = db.Database;
 
 const Route = enum {
     index,
@@ -12,8 +14,17 @@ const Route = enum {
     app,
 };
 
+const DashboardApp = struct {
+    app: *const config.App,
+    count: i64,
+};
+
 const text_plain_headers = [_]std.http.Header{
     .{ .name = "content-type", .value = "text/plain" },
+};
+
+const text_html_headers = [_]std.http.Header{
+    .{ .name = "content-type", .value = "text/html; charset=utf-8" },
 };
 
 const max_event_body_size = 16 * 1024;
@@ -26,12 +37,12 @@ pub const Server = struct {
     db: *Database,
     config: Config,
 
-    pub fn init(io: std.Io, config: Config, db: *Database) !Server {
+    pub fn init(io: std.Io, cfg: Config, database: *Database) !Server {
         const host: []const u8 = "0.0.0.0";
-        const port: u16 = config.port;
+        const port: u16 = cfg.port;
         const addr = try std.Io.net.IpAddress.parseIp4(host, port);
 
-        return .{ .host = host, .port = port, .addr = addr, .io = io, .db = db, .config = config };
+        return .{ .host = host, .port = port, .addr = addr, .io = io, .db = database, .config = cfg };
     }
 
     pub fn run(self: Server) !void {
@@ -68,7 +79,7 @@ pub const Server = struct {
         switch (route) {
             .event => try self.handleEvent(request),
             .login => try handleLogin(request),
-            .index => try handleIndex(request),
+            .index => try self.handleIndex(request),
             .app => try handleApp(request),
         }
     }
@@ -108,11 +119,42 @@ pub const Server = struct {
         };
         self.db.insertEvent(created_event) catch |err| {
             std.log.err("failed to insert event: {any}", .{err});
-            try respondText(request, "internal server error\n", .internal_server_error);
+            try respondInternalError(request);
             return;
         };
 
         try respondNoContent(request);
+    }
+
+    fn handleIndex(self: Server, request: *std.http.Server.Request) !void {
+        const since_ms = startOfDayMillis(self.db.nowMillis());
+
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+        const counts = self.db.countEventsByAppSince(allocator, since_ms) catch |err| {
+            std.log.err("failed to load dashboard counts: {any}", .{err});
+            try respondInternalError(request);
+            return;
+        };
+        var apps: std.ArrayList(DashboardApp) = .empty;
+        for (self.config.apps) |*app| {
+            if (!app.active) continue;
+
+            try apps.append(allocator, .{
+                .app = app,
+                .count = findEventCount(counts, app.key),
+            });
+        }
+        std.mem.sort(
+            DashboardApp,
+            apps.items,
+            {},
+            lessThanDashboardApp,
+        );
+        const html = try renderPage(allocator, apps.items);
+        try respondHtml(request, html, .ok);
     }
 
     pub fn listen(self: Server) !std.Io.net.Server {
@@ -135,10 +177,6 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
     }
 
     return null;
-}
-
-fn handleIndex(request: *std.http.Server.Request) !void {
-    try respondText(request, "ok\n", .ok);
 }
 
 fn handleLogin(request: *std.http.Server.Request) !void {
@@ -172,6 +210,136 @@ fn respondNotFound(request: *std.http.Server.Request) !void {
     try respondText(request, "not found\n", .not_found);
 }
 
+fn respondInternalError(request: *std.http.Server.Request) !void {
+    try respondText(request, "internal server error", .internal_server_error);
+}
+
+fn respondHtml(request: *std.http.Server.Request, body: []const u8, status: std.http.Status) !void {
+    try request.respond(body, .{
+        .status = status,
+        .keep_alive = false,
+        .extra_headers = &text_html_headers,
+    });
+}
+
+fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
+    var html: std.ArrayList(u8) = .empty;
+    errdefer html.deinit(allocator);
+
+    try html.appendSlice(allocator,
+        \\<!doctype html>
+        \\<html lang="en">
+        \\<head>
+        \\  <meta charset="utf-8">
+        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+        \\  <title>Meioziz</title>
+        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+        \\</head>
+        \\<body>
+        \\  <header class="border-bottom">
+        \\    <div class="container py-3">
+        \\      <h1 class="h4 mb-0">Meioziz</h1>
+        \\    </div>
+        \\  </header>
+        \\  <main class="container py-4">
+        \\    <h2 class="h5 mb-3">Dashboard</h2>
+    );
+    if (apps.len == 0) {
+        try html.appendSlice(allocator,
+            \\    <p class="text-body-secondary mb-0">No active apps configured.</p>
+            \\
+        );
+    } else {
+        try html.appendSlice(allocator,
+            \\    <div class="row g-3">
+            \\
+        );
+
+        for (apps) |app| {
+            try renderAppCard(&html, allocator, app);
+        }
+
+        try html.appendSlice(allocator,
+            \\    </div>
+            \\
+        );
+    }
+
+    try html.appendSlice(allocator,
+        \\  </main>
+        \\  <footer class="border-top">
+        \\    <div class="container py-3">
+        \\      <a href="https://github.com/monjuik/meioziz">GitHub</a>
+        \\    </div>
+        \\  </footer>
+        \\</body>
+        \\</html>
+        \\
+    );
+
+    return try html.toOwnedSlice(allocator);
+}
+
+fn appendEscapedHtml(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+    for (value) |char| {
+        switch (char) {
+            '&' => try html.appendSlice(allocator, "&amp;"),
+            '<' => try html.appendSlice(allocator, "&lt;"),
+            '>' => try html.appendSlice(allocator, "&gt;"),
+            '"' => try html.appendSlice(allocator, "&quot;"),
+            '\'' => try html.appendSlice(allocator, "&#39;"),
+            else => try html.append(allocator, char),
+        }
+    }
+}
+
+fn renderAppCard(html: *std.ArrayList(u8), allocator: std.mem.Allocator, dashboard_app: DashboardApp) !void {
+    try html.appendSlice(allocator,
+        \\      <div class="col-12 col-md-6">
+        \\        <a class="card text-decoration-none text-body h-100" href="/app/
+    );
+    try appendEscapedHtml(html, allocator, dashboard_app.app.key);
+    try html.appendSlice(allocator,
+        \\">
+        \\          <div class="card-body">
+        \\            <h3 class="h6 card-title mb-2">
+    );
+    try appendEscapedHtml(html, allocator, dashboard_app.app.name);
+    try html.appendSlice(allocator,
+        \\</h3>
+        \\            <p class="card-text mb-0">
+    );
+
+    const count_text = try std.fmt.allocPrint(allocator, "{d}", .{dashboard_app.count});
+    try html.appendSlice(allocator, count_text);
+
+    try html.appendSlice(allocator,
+        \\ events today</p>
+        \\          </div>
+        \\        </a>
+        \\      </div>
+        \\
+    );
+}
+
+//we use UTC
+fn startOfDayMillis(now_ms: i64) i64 {
+    return @divFloor(now_ms, 86_400_000) * 86_400_000;
+}
+
+fn findEventCount(counts: []const db.AppEventCount, app_key: []const u8) i64 {
+    for (counts) |count| {
+        if (std.mem.eql(u8, count.app_key, app_key)) {
+            return count.count;
+        }
+    }
+    return 0;
+}
+
+fn lessThanDashboardApp(_: void, left: DashboardApp, right: DashboardApp) bool {
+    return std.mem.lessThan(u8, left.app.name, right.app.name);
+}
+
 test "match allowed routes" {
     try std.testing.expectEqual(Route.index, matchRoute(.GET, "/"));
     try std.testing.expectEqual(Route.app, matchRoute(.GET, "/app/pairception"));
@@ -184,4 +352,14 @@ test "reject unknown routes" {
     try std.testing.expectEqual(null, matchRoute(.POST, "/"));
     try std.testing.expectEqual(null, matchRoute(.GET, "/v1/event"));
     try std.testing.expectEqual(null, matchRoute(.PUT, "/v1/event"));
+}
+
+test "calculate start of UTC day in milliseconds" {
+    const june_29_2026_20_19_utc: i64 = 1782764340000;
+    const june_29_2026_start_utc: i64 = 1782691200000;
+
+    try std.testing.expectEqual(
+        june_29_2026_start_utc,
+        startOfDayMillis(june_29_2026_20_19_utc),
+    );
 }
