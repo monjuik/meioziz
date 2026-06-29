@@ -2,9 +2,11 @@
 
 Tiny privacy-first event stats for indie apps. Zig + SQLite. No user tracking.
 
+Your app sends events to the server, like "a game was finished with the score of 567" or "in-game shop was opened". Meioziz keeps them for a day and calculates daily aggregates.
+
 It's very ecological:
 - 2.5 MB self-efficient binary,
-- 2.5 MB RAM with 10k daily events, (as SQLite keeps some indexes and cache in memory), 
+- 2.5 MB RAM with 10k daily events (as SQLite keeps some indexes and cache in memory), 
 - less than 1ms for the REST API responses.
 
 ## What's in this name?
