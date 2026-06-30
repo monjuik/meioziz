@@ -2,7 +2,7 @@
 
 Tiny privacy-first event stats for indie apps. Zig + SQLite. No user tracking.
 
-Your app sends events to the server, like "a game was finished with the score of 567" or "in-game shop was opened". Meioziz keeps them for a day and calculates daily aggregates.
+Your app sends events to the server, like "a game was finished with the score of 567" or "in-game shop was opened". Meioziz keeps them for a day and calculates daily aggregates. You see them for the previous 28 days.
 
 It's very ecological:
 - 2.5 MB self-efficient binary,

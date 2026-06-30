@@ -12,6 +12,7 @@ const Route = enum {
     event,
     login,
     app,
+    createDaily,
 };
 
 const DashboardApp = struct {
@@ -80,7 +81,8 @@ pub const Server = struct {
             .event => try self.handleEvent(request),
             .login => try handleLogin(request),
             .index => try self.handleIndex(request),
-            .app => try handleApp(request),
+            .app => try self.handleApp(request),
+            .createDaily => try self.handleCreateDaily(request),
         }
     }
 
@@ -157,6 +159,54 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
+    fn handleCreateDaily(self: Server, request: *std.http.Server.Request) !void {
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+
+        // intentionally unauthenticated for now: aggregation is idempotent
+        const result = self.db.createDailyAggregates(allocator) catch |err| {
+            std.log.err("failed to run daily aggregation: {any}", .{err});
+            try respondInternalError(request);
+            return;
+        };
+
+        const body = try std.fmt.allocPrint(
+            allocator,
+            "ok days={d} events_deleted={d} elapsed_ms={d}\n",
+            .{ result.days, result.events_deleted, result.elapsed_ms },
+        );
+
+        try respondText(request, body, .ok);
+    }
+
+    fn handleApp(self: Server, request: *std.http.Server.Request) !void {
+        const app_key = appKeyFromPath(request.head.target) orelse {
+            try respondNotFound(request);
+            return;
+        };
+
+        const app = self.config.findApp(app_key) orelse {
+            try respondNotFound(request);
+            return;
+        };
+
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+
+        const aggregates = self.db.dailyAggregatesByApp(allocator, app.key) catch |err| {
+            std.log.err("failed to load daily aggregates: {any}", .{err});
+            try respondInternalError(request);
+            return;
+        };
+
+        const html = try renderAppPage(allocator, app, aggregates);
+        try respondHtml(request, html, .ok);
+    }
+
     pub fn listen(self: Server) !std.Io.net.Server {
         std.log.info("Server started, receiving requests on {s}:{d}", .{ self.host, self.port });
         return try self.addr.listen(self.io, .{ .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
@@ -172,6 +222,7 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
         .POST => {
             if (std.mem.eql(u8, path, "/v1/event")) return .event;
             if (std.mem.eql(u8, path, "/login")) return .login;
+            if (std.mem.eql(u8, path, "/admin/createDaily")) return .createDaily;
         },
         else => {},
     }
@@ -179,11 +230,14 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
     return null;
 }
 
-fn handleLogin(request: *std.http.Server.Request) !void {
-    try respondText(request, "ok\n", .ok);
+fn appKeyFromPath(path: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, path, "/app/")) return null;
+    const app_key = path["/app/".len..];
+    if (app_key.len == 0) return null;
+    return app_key;
 }
 
-fn handleApp(request: *std.http.Server.Request) !void {
+fn handleLogin(request: *std.http.Server.Request) !void {
     try respondText(request, "ok\n", .ok);
 }
 
@@ -322,9 +376,197 @@ fn renderAppCard(html: *std.ArrayList(u8), allocator: std.mem.Allocator, dashboa
     );
 }
 
-//we use UTC
+fn renderAppPage(
+    allocator: std.mem.Allocator,
+    app: *const config.App,
+    aggregates: []const db.DailyAggregate,
+) ![]u8 {
+    var html: std.ArrayList(u8) = .empty;
+    errdefer html.deinit(allocator);
+
+    try html.appendSlice(allocator,
+        \\<!doctype html>
+        \\<html lang="en">
+        \\<head>
+        \\  <meta charset="utf-8">
+        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+        \\  <title>
+    );
+    try appendEscapedHtml(&html, allocator, app.name);
+    try html.appendSlice(allocator,
+        \\ - Meioziz</title>
+        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+        \\</head>
+        \\<body>
+        \\  <header class="border-bottom">
+        \\    <div class="container py-3">
+        \\      <a href="/" class="text-decoration-none">Meioziz</a>
+        \\    </div>
+        \\  </header>
+        \\  <main class="container py-4">
+        \\    <h1 class="h4 mb-4">
+    );
+    try appendEscapedHtml(&html, allocator, app.name);
+    try html.appendSlice(allocator,
+        \\</h1>
+        \\
+    );
+
+    if (aggregates.len == 0) {
+        try html.appendSlice(allocator,
+            \\    <p class="text-body-secondary mb-0">No daily aggregates yet.</p>
+            \\
+        );
+    } else {
+        var i: usize = 0;
+        while (i < aggregates.len) {
+            const code = aggregates[i].code;
+            const start = i;
+            while (i < aggregates.len and std.mem.eql(u8, aggregates[i].code, code)) {
+                i += 1;
+            }
+            try renderEventCodeBlock(&html, allocator, code, aggregates[start..i]);
+        }
+    }
+
+    try html.appendSlice(allocator,
+        \\  </main>
+        \\  <footer class="border-top">
+        \\    <div class="container py-3">
+        \\      <a href="https://github.com/monjuik/meioziz">GitHub</a>
+        \\    </div>
+        \\  </footer>
+        \\</body>
+        \\</html>
+        \\
+    );
+
+    return try html.toOwnedSlice(allocator);
+}
+
+fn renderEventCodeBlock(
+    html: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    code: []const u8,
+    rows: []const db.DailyAggregate,
+) !void {
+    try html.appendSlice(allocator,
+        \\    <section class="mb-4">
+        \\      <h2 class="h5 mb-3">
+    );
+    try appendEscapedHtml(html, allocator, code);
+    try html.appendSlice(allocator,
+        \\</h2>
+        \\      <div class="table-responsive">
+        \\        <table class="table table-sm align-middle">
+        \\          <thead>
+        \\            <tr>
+        \\              <th scope="col">Day</th>
+        \\              <th scope="col" class="text-end">Count</th>
+        \\              <th scope="col" class="text-end">Min</th>
+        \\              <th scope="col" class="text-end">Max</th>
+        \\              <th scope="col" class="text-end">Avg</th>
+        \\              <th scope="col" class="text-end">Uniques</th>
+        \\            </tr>
+        \\          </thead>
+        \\          <tbody>
+        \\
+    );
+
+    for (rows) |row| {
+        try renderDailyAggregateRow(html, allocator, row);
+    }
+
+    try html.appendSlice(allocator,
+        \\          </tbody>
+        \\        </table>
+        \\      </div>
+        \\    </section>
+        \\
+    );
+}
+
+fn renderDailyAggregateRow(
+    html: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    row: db.DailyAggregate,
+) !void {
+    try html.appendSlice(allocator,
+        \\            <tr>
+        \\              <td>
+    );
+    try appendDay(html, allocator, row.day);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\              <td class="text-end">
+    );
+    try appendInt(html, allocator, row.count);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\              <td class="text-end">
+    );
+    try appendNullableInt(html, allocator, row.min);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\              <td class="text-end">
+    );
+    try appendNullableInt(html, allocator, row.max);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\              <td class="text-end">
+    );
+    try appendNullableFloat(html, allocator, row.avg);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\              <td class="text-end">
+    );
+    try appendNullableInt(html, allocator, row.uniques);
+    try html.appendSlice(allocator,
+        \\</td>
+        \\            </tr>
+        \\
+    );
+}
+
+fn appendInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: i64) !void {
+    const text = try std.fmt.allocPrint(allocator, "{d}", .{value});
+    try html.appendSlice(allocator, text);
+}
+
+fn appendNullableInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?i64) !void {
+    if (value) |actual| {
+        try appendInt(html, allocator, actual);
+    } else {
+        try html.appendSlice(allocator, "-");
+    }
+}
+
+fn appendNullableFloat(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?f64) !void {
+    if (value) |actual| {
+        const text = try std.fmt.allocPrint(allocator, "{d:.2}", .{actual});
+        try html.appendSlice(allocator, text);
+    } else {
+        try html.appendSlice(allocator, "-");
+    }
+}
+
+fn appendDay(html: *std.ArrayList(u8), allocator: std.mem.Allocator, day: i64) !void {
+    const days_since_epoch = @divFloor(day, db.day_ms);
+    const epoch_day = std.time.epoch.EpochDay{ .day = @intCast(days_since_epoch) };
+    const year_day = epoch_day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+
+    const text = try std.fmt.allocPrint(
+        allocator,
+        "{d:0>4}-{d:0>2}-{d:0>2}",
+        .{ year_day.year, @intFromEnum(month_day.month), month_day.day_index + 1 },
+    );
+    try html.appendSlice(allocator, text);
+}
+
+// we use UTC
 fn startOfDayMillis(now_ms: i64) i64 {
-    return @divFloor(now_ms, 86_400_000) * 86_400_000;
+    return @divFloor(now_ms, db.day_ms) * db.day_ms;
 }
 
 fn findEventCount(counts: []const db.AppEventCount, app_key: []const u8) i64 {
@@ -345,6 +587,7 @@ test "match allowed routes" {
     try std.testing.expectEqual(Route.app, matchRoute(.GET, "/app/pairception"));
     try std.testing.expectEqual(Route.event, matchRoute(.POST, "/v1/event"));
     try std.testing.expectEqual(Route.login, matchRoute(.POST, "/login"));
+    try std.testing.expectEqual(Route.createDaily, matchRoute(.POST, "/admin/createDaily"));
 }
 
 test "reject unknown routes" {
@@ -362,4 +605,10 @@ test "calculate start of UTC day in milliseconds" {
         june_29_2026_start_utc,
         startOfDayMillis(june_29_2026_20_19_utc),
     );
+}
+
+test "extract app key from path" {
+    try std.testing.expectEqualStrings("pairception", appKeyFromPath("/app/pairception").?);
+    try std.testing.expectEqual(null, appKeyFromPath("/app/"));
+    try std.testing.expectEqual(null, appKeyFromPath("/unknown"));
 }
