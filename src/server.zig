@@ -347,6 +347,21 @@ fn appendEscapedHtml(html: *std.ArrayList(u8), allocator: std.mem.Allocator, val
     }
 }
 
+fn appendJsString(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+    try html.append(allocator, '"');
+    for (value) |char| {
+        switch (char) {
+            '\\' => try html.appendSlice(allocator, "\\\\"),
+            '"' => try html.appendSlice(allocator, "\\\""),
+            '\n' => try html.appendSlice(allocator, "\\n"),
+            '\r' => try html.appendSlice(allocator, "\\r"),
+            '\t' => try html.appendSlice(allocator, "\\t"),
+            else => try html.append(allocator, char),
+        }
+    }
+    try html.append(allocator, '"');
+}
+
 fn renderAppCard(html: *std.ArrayList(u8), allocator: std.mem.Allocator, dashboard_app: DashboardApp) !void {
     try html.appendSlice(allocator,
         \\      <div class="col-12 col-md-6">
@@ -396,6 +411,7 @@ fn renderAppPage(
     try html.appendSlice(allocator,
         \\ - Meioziz</title>
         \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+        \\  <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
         \\</head>
         \\<body>
         \\  <header class="border-bottom">
@@ -419,13 +435,15 @@ fn renderAppPage(
         );
     } else {
         var i: usize = 0;
+        var group_index: usize = 0;
         while (i < aggregates.len) {
             const code = aggregates[i].code;
             const start = i;
             while (i < aggregates.len and std.mem.eql(u8, aggregates[i].code, code)) {
                 i += 1;
             }
-            try renderEventCodeBlock(&html, allocator, code, aggregates[start..i]);
+            try renderEventCodeBlock(&html, allocator, group_index, code, aggregates[start..i]);
+            group_index += 1;
         }
     }
 
@@ -447,6 +465,7 @@ fn renderAppPage(
 fn renderEventCodeBlock(
     html: *std.ArrayList(u8),
     allocator: std.mem.Allocator,
+    group_index: usize,
     code: []const u8,
     rows: []const db.DailyAggregate,
 ) !void {
@@ -457,19 +476,30 @@ fn renderEventCodeBlock(
     try appendEscapedHtml(html, allocator, code);
     try html.appendSlice(allocator,
         \\</h2>
-        \\      <div class="table-responsive">
-        \\        <table class="table table-sm align-middle">
-        \\          <thead>
-        \\            <tr>
-        \\              <th scope="col">Day</th>
-        \\              <th scope="col" class="text-end">Count</th>
-        \\              <th scope="col" class="text-end">Min</th>
-        \\              <th scope="col" class="text-end">Max</th>
-        \\              <th scope="col" class="text-end">Avg</th>
-        \\              <th scope="col" class="text-end">Uniques</th>
-        \\            </tr>
-        \\          </thead>
-        \\          <tbody>
+        \\      <div class="row g-3 align-items-start">
+        \\        <div class="col-12 col-lg-5">
+        \\          <div style="height: 320px;">
+        \\            <canvas id="chart-
+    );
+    try appendInt(html, allocator, @intCast(group_index));
+    try html.appendSlice(allocator,
+        \\"></canvas>
+        \\          </div>
+        \\        </div>
+        \\        <div class="col-12 col-lg-7">
+        \\          <div class="table-responsive">
+        \\            <table class="table table-sm align-middle">
+        \\              <thead>
+        \\                <tr>
+        \\                  <th scope="col">Day</th>
+        \\                  <th scope="col" class="text-end">Count</th>
+        \\                  <th scope="col" class="text-end">Min</th>
+        \\                  <th scope="col" class="text-end">Max</th>
+        \\                  <th scope="col" class="text-end">Avg</th>
+        \\                  <th scope="col" class="text-end">Uniques</th>
+        \\                </tr>
+        \\              </thead>
+        \\              <tbody>
         \\
     );
 
@@ -478,11 +508,113 @@ fn renderEventCodeBlock(
     }
 
     try html.appendSlice(allocator,
-        \\          </tbody>
-        \\        </table>
+        \\              </tbody>
+        \\            </table>
+        \\          </div>
+        \\        </div>
         \\      </div>
+        \\      <script>
+        \\        new Chart(document.getElementById('chart-
+    );
+    try appendInt(html, allocator, @intCast(group_index));
+    try html.appendSlice(allocator,
+        \\'), {
+        \\          type: 'line',
+        \\          data: {
+        \\            labels: [
+    );
+    var label_index: usize = rows.len;
+    while (label_index > 0) {
+        label_index -= 1;
+        if (label_index != rows.len - 1) {
+            try html.appendSlice(allocator, ", ");
+        }
+        try html.append(allocator, '\'');
+        try appendDay(html, allocator, rows[label_index].day);
+        try html.append(allocator, '\'');
+    }
+    try html.appendSlice(allocator,
+        \\],
+        \\            datasets: [
+    );
+
+    try appendIntChartDataset(html, allocator, "Count", rows, .count, false);
+    try appendIntChartDataset(html, allocator, "Uniques", rows, .uniques, true);
+    try appendIntChartDataset(html, allocator, "Min", rows, .min, true);
+    try appendIntChartDataset(html, allocator, "Max", rows, .max, true);
+
+    try html.appendSlice(allocator,
+        \\]
+        \\          },
+        \\
+    );
+
+    try html.appendSlice(allocator,
+        \\          options: {
+        \\            responsive: true,
+        \\            maintainAspectRatio: false,
+        \\            interaction: {
+        \\              intersect: false
+        \\            }
+        \\          }
+        \\        });
+        \\      </script>
         \\    </section>
         \\
+    );
+}
+
+const IntChartMetric = enum {
+    count,
+    uniques,
+    min,
+    max,
+};
+
+fn appendIntChartDataset(
+    html: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    label: []const u8,
+    rows: []const db.DailyAggregate,
+    metric: IntChartMetric,
+    comma_prefix: bool,
+) !void {
+    if (comma_prefix) {
+        try html.appendSlice(allocator, ",");
+    }
+
+    try html.appendSlice(allocator,
+        \\{
+        \\              label:
+    );
+    try appendJsString(html, allocator, label);
+    try html.appendSlice(allocator,
+        \\,
+        \\              data: [
+    );
+
+    var value_index: usize = rows.len;
+    while (value_index > 0) {
+        value_index -= 1;
+        if (value_index != rows.len - 1) {
+            try html.appendSlice(allocator, ", ");
+        }
+
+        const row = rows[value_index];
+        switch (metric) {
+            .count => try appendInt(html, allocator, row.count),
+            .uniques => try appendNullableJsInt(html, allocator, row.uniques),
+            .min => try appendNullableJsInt(html, allocator, row.min),
+            .max => try appendNullableJsInt(html, allocator, row.max),
+        }
+    }
+
+    try html.appendSlice(allocator,
+        \\],
+        \\              cubicInterpolationMode: 'monotone',
+        \\              tension: 0.4,
+        \\              fill: false
+        \\            }
     );
 }
 
@@ -547,6 +679,14 @@ fn appendNullableFloat(html: *std.ArrayList(u8), allocator: std.mem.Allocator, v
         try html.appendSlice(allocator, text);
     } else {
         try html.appendSlice(allocator, "-");
+    }
+}
+
+fn appendNullableJsInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?i64) !void {
+    if (value) |actual| {
+        try appendInt(html, allocator, actual);
+    } else {
+        try html.appendSlice(allocator, "null");
     }
 }
 
