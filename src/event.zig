@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const config = @import("config.zig");
 
 const max_length = 128;

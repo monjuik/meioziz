@@ -1,11 +1,12 @@
 const std = @import("std");
 const Socket = std.Io.net.Socket;
 const Protocol = std.Io.net.Protocol;
+
 const config = @import("config.zig");
 const Config = config.Config;
-const event = @import("event.zig");
 const db = @import("db.zig");
 const Database = db.Database;
+const event = @import("event.zig");
 
 const Route = enum {
     index,
@@ -411,7 +412,7 @@ fn renderAppPage(
     try html.appendSlice(allocator,
         \\ - Meioziz</title>
         \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-        \\  <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
+        \\  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
         \\</head>
         \\<body>
         \\  <header class="border-bottom">
@@ -542,6 +543,7 @@ fn renderEventCodeBlock(
     try appendIntChartDataset(html, allocator, "Uniques", rows, .uniques, true);
     try appendIntChartDataset(html, allocator, "Min", rows, .min, true);
     try appendIntChartDataset(html, allocator, "Max", rows, .max, true);
+    try appendIntChartDataset(html, allocator, "Avg", rows, .avg, true);
 
     try html.appendSlice(allocator,
         \\]
@@ -569,6 +571,7 @@ const IntChartMetric = enum {
     uniques,
     min,
     max,
+    avg,
 };
 
 fn appendIntChartDataset(
@@ -603,9 +606,10 @@ fn appendIntChartDataset(
         const row = rows[value_index];
         switch (metric) {
             .count => try appendInt(html, allocator, row.count),
-            .uniques => try appendNullableJsInt(html, allocator, row.uniques),
-            .min => try appendNullableJsInt(html, allocator, row.min),
-            .max => try appendNullableJsInt(html, allocator, row.max),
+            .uniques => try appendNullableInt(html, allocator, row.uniques, "null"),
+            .min => try appendNullableInt(html, allocator, row.min, "null"),
+            .max => try appendNullableInt(html, allocator, row.max, "null"),
+            .avg => try appendNullableInt(html, allocator, row.avg, "null"),
         }
     }
 
@@ -637,22 +641,22 @@ fn renderDailyAggregateRow(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.min);
+    try appendNullableInt(html, allocator, row.min, "-");
     try html.appendSlice(allocator,
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.max);
+    try appendNullableInt(html, allocator, row.max, "-");
     try html.appendSlice(allocator,
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableFloat(html, allocator, row.avg);
+    try appendNullableInt(html, allocator, row.avg, "-");
     try html.appendSlice(allocator,
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.uniques);
+    try appendNullableInt(html, allocator, row.uniques, "-");
     try html.appendSlice(allocator,
         \\</td>
         \\            </tr>
@@ -665,28 +669,16 @@ fn appendInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: i64)
     try html.appendSlice(allocator, text);
 }
 
-fn appendNullableInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?i64) !void {
+fn appendNullableInt(
+    html: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    value: ?i64,
+    fallback: []const u8,
+) !void {
     if (value) |actual| {
         try appendInt(html, allocator, actual);
     } else {
-        try html.appendSlice(allocator, "-");
-    }
-}
-
-fn appendNullableFloat(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?f64) !void {
-    if (value) |actual| {
-        const text = try std.fmt.allocPrint(allocator, "{d:.2}", .{actual});
-        try html.appendSlice(allocator, text);
-    } else {
-        try html.appendSlice(allocator, "-");
-    }
-}
-
-fn appendNullableJsInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?i64) !void {
-    if (value) |actual| {
-        try appendInt(html, allocator, actual);
-    } else {
-        try html.appendSlice(allocator, "null");
+        try html.appendSlice(allocator, fallback);
     }
 }
 

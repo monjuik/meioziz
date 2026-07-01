@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const Server = @import("server.zig").Server;
 const config = @import("config.zig");
 const db = @import("db.zig");
 const Database = db.Database;
+const Server = @import("server.zig").Server;
 
 const create_daily_hour_utc: i64 = 0;
 const create_daily_minute_utc: i64 = 17;

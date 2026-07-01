@@ -1,5 +1,7 @@
 const std = @import("std");
+
 const zqlite = @import("zqlite");
+
 const event = @import("event.zig");
 
 pub const day_ms: i64 = 86_400_000;
@@ -35,7 +37,7 @@ pub const DailyAggregate = struct {
     uniques: ?i64,
     min: ?i64,
     max: ?i64,
-    avg: ?f64,
+    avg: ?i64,
 };
 
 pub const Database = struct {
@@ -162,10 +164,10 @@ pub const Database = struct {
                 .day = row.int(0),
                 .code = try allocator.dupe(u8, row.text(1)),
                 .count = row.int(2),
-                .uniques = nullableInt(row, 3),
-                .min = nullableInt(row, 4),
-                .max = nullableInt(row, 5),
-                .avg = nullableFloat(row, 6),
+                .uniques = row.nullableInt(3),
+                .min = row.nullableInt(4),
+                .max = row.nullableInt(5),
+                .avg = row.nullableInt(6),
             });
         }
 
@@ -246,7 +248,7 @@ pub const Database = struct {
                 \\    CASE WHEN COUNT(install_id) = 0 THEN NULL ELSE COUNT(DISTINCT install_id) END,
                 \\    MIN(value),
                 \\    MAX(value),
-                \\    AVG(value)
+                \\    CAST(ROUND(AVG(value), 0) AS INTEGER)
                 \\FROM raw
                 \\WHERE received >= ?1 AND received < ?2
                 \\GROUP BY app, code
@@ -297,14 +299,6 @@ pub const Database = struct {
         return row.int(0);
     }
 
-    fn nullableInt(row: anytype, index: usize) ?i64 {
-        return row.nullableInt(index);
-    }
-
-    fn nullableFloat(row: anytype, index: usize) ?f64 {
-        return row.nullableFloat(index);
-    }
-
     pub fn nowMillis(self: *Database) i64 {
         const now = std.Io.Clock.now(.real, self.io);
         return @intCast(@divTrunc(now.nanoseconds, 1_000_000));
@@ -340,7 +334,7 @@ const migrations = [_]Migration{
         \\    uniques INTEGER,
         \\    min INTEGER,
         \\    max INTEGER,
-        \\    avg REAL,
+        \\    avg INTEGER,
         \\    PRIMARY KEY (day, app, code)
         \\);
         , // 'unique' is a reserved keyword, thus we are using uniques
@@ -395,7 +389,7 @@ test "aggregate complete raw days" {
         \\INSERT INTO raw (received, app, code, value, install_id, data) VALUES
         \\(?1, 'pairception', 'game-finished', 10, 'a', NULL),
         \\(?1, 'pairception', 'game-finished', 20, 'a', NULL),
-        \\(?1, 'pairception', 'game-finished', 30, 'b', NULL),
+        \\(?1, 'pairception', 'game-finished', 32, 'b', NULL),
         \\(?1, 'pairception', 'shop-opened', NULL, NULL, NULL),
         \\(?2, 'pairception', 'today-event', 100, 'c', NULL)
     ,
@@ -419,8 +413,8 @@ test "aggregate complete raw days" {
     try std.testing.expectEqual(@as(i64, 3), aggregate.int(0));
     try std.testing.expectEqual(@as(i64, 2), aggregate.int(1));
     try std.testing.expectEqual(@as(i64, 10), aggregate.int(2));
-    try std.testing.expectEqual(@as(i64, 30), aggregate.int(3));
-    try std.testing.expectEqual(@as(f64, 20.0), aggregate.float(4));
+    try std.testing.expectEqual(@as(i64, 32), aggregate.int(3));
+    try std.testing.expectEqual(@as(i64, 21), aggregate.int(4));
 
     const remaining_raw = try db.conn.row("SELECT COUNT(*) FROM raw", .{}) orelse return error.RawCountNotFound;
     defer remaining_raw.deinit();
