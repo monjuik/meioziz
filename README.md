@@ -9,6 +9,11 @@ It's very ecological:
 - 2.5 MB RAM with 10k daily events (as SQLite keeps some indexes and cache in memory), 
 - less than 1ms for the REST API responses.
 
+## Why am I doing it?
+
+I don't like unknown SDK getting info about the user in my apps. But I would like to know if users are visiting the shop or finishing the game.
+So I am building this tool for myself.
+
 ## What's in this name?
 
 This app is very tiny, the events are tiny – as amoeba's poke. Meiosis is a their reproduction.
@@ -66,3 +71,4 @@ Strings up to 128 symbols are supported.
 ```
 
 To get a password hash use `htpasswd -bnBC 12 "" 'your-password' | cut -d: -f2`. Note: passwords should not contain URL form special characters: `+`, `%`, `&`, `=`.
+`.admin_hash = ""` disables admin login/UI access, but `POST /v1/event` continues working.

@@ -1,10 +1,5 @@
 # Meioziz specification
 
-## Why am I doing it?
-
-I don't like unknown SDK getting info about the user in my apps. But I would like to know if users are visiting the shop or finishing the game.
-So I am building this tool for myself.
-
 ## How am I doing it?
 
 KISS: as simple as possible. External dependencies only if they are really needed and inevitable.
