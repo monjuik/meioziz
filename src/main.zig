@@ -23,7 +23,17 @@ pub fn main(init: std.process.Init) !void {
     else
         std.heap.smp_allocator;
 
-    const app_config = try config.load(io, allocator);
+    const app_config = config.load(io, allocator) catch |err| switch (err) {
+        error.MissingConfig => {
+            std.log.err("config.zon is required", .{});
+            return err;
+        },
+        error.MissingAdminHash => {
+            std.log.err("config.zon must contain .admin_hash; generate it with: htpasswd -bnBC 12 \"\" 'your-password' | cut -d: -f2", .{});
+            return err;
+        },
+        else => return err,
+    };
     defer app_config.deinit(allocator);
 
     var database = try Database.open(io, app_config.database);

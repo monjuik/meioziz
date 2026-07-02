@@ -41,19 +41,19 @@ External app sends events via `POST /v1/event`. Example:
 `value` is integer and optional.
 `installId` is optional.
 
-Valid characters for the `app` and `code`: 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', ' '.
+Valid characters for the `app` and `code`: `a`…`z`, `A`…`Z`, `0`…`9`, `-`, `.`, `_`, ' '.
 
 Strings up to 128 symbols are supported.
 
 ## Config
 
-`config.zon` in the working directory. Example:
+`config.zon` is necessary and is expected in the working directory. Example:
 
 ```zig
 .{
     .port = 8080,
 
-    .admin_hash = "pbkdf2-sha256:...",
+    .admin_hash = "$2y$12$qBlpx4Y61WRU7bIrhSGdwOyJumNNH/fChk40axsUWbF0NsSTy8uI2",
 
     .apps = .{
         .{
@@ -64,3 +64,5 @@ Strings up to 128 symbols are supported.
     },
 }
 ```
+
+To get a password hash use `htpasswd -bnBC 12 "" 'your-password' | cut -d: -f2`. Note: passwords should not contain URL form special characters: `+`, `%`, `&`, `=`.

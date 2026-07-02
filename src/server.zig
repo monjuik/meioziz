@@ -14,6 +14,13 @@ const Route = enum {
     login,
     app,
     createDaily,
+
+    fn requiresAdmin(self: Route) bool {
+        return switch (self) {
+            .index, .app, .createDaily => true,
+            .event, .login => false,
+        };
+    }
 };
 
 const DashboardApp = struct {
@@ -78,9 +85,14 @@ pub const Server = struct {
             return;
         };
 
+        if (route.requiresAdmin() and !self.isAuthorized(request)) {
+            try respondLoginForm(request, .unauthorized);
+            return;
+        }
+
         switch (route) {
             .event => try self.handleEvent(request),
-            .login => try handleLogin(request),
+            .login => try self.handleLogin(request),
             .index => try self.handleIndex(request),
             .app => try self.handleApp(request),
             .createDaily => try self.handleCreateDaily(request),
@@ -166,7 +178,6 @@ pub const Server = struct {
 
         const allocator = request_arena.allocator();
 
-        // intentionally unauthenticated for now: aggregation is idempotent
         const result = self.db.createDailyAggregates(allocator) catch |err| {
             std.log.err("failed to run daily aggregation: {any}", .{err});
             try respondInternalError(request);
@@ -208,6 +219,71 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
+    fn handleLogin(self: Server, request: *std.http.Server.Request) !void {
+        const admin_hash = self.config.admin_hash;
+
+        const content_length = request.head.content_length orelse {
+            try respondBadRequest(request);
+            return;
+        };
+
+        if (content_length > 4096) {
+            try respondBadRequest(request);
+            return;
+        }
+
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
+        defer request_arena.deinit();
+
+        const allocator = request_arena.allocator();
+
+        var body_buffer: [4096]u8 = undefined;
+        var body_reader = request.readerExpectNone(&body_buffer);
+        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
+            try respondBadRequest(request);
+            return;
+        };
+
+        const username = formValue(body, "username") orelse "";
+        const password = formValue(body, "password") orelse "";
+
+        if (!std.mem.eql(u8, username, "admin") or !verifyPassword(admin_hash, password)) {
+            try respondLoginForm(request, .unauthorized);
+            return;
+        }
+
+        var cookie_value_buf: [128]u8 = undefined;
+        const now_seconds = @divFloor(self.db.nowMillis(), 1000);
+        const cookie_value = writeSignedCookieValue(&cookie_value_buf, admin_hash, now_seconds) catch {
+            try respondInternalError(request);
+            return;
+        };
+
+        var set_cookie_buf: [256]u8 = undefined;
+        const set_cookie = try std.fmt.bufPrint(
+            &set_cookie_buf,
+            "{s}={s}; Path=/; HttpOnly; SameSite=Lax; Max-Age={d}",
+            .{ admin_cookie_name, cookie_value, admin_cookie_max_age_seconds },
+        );
+
+        const headers = [_]std.http.Header{
+            .{ .name = "set-cookie", .value = set_cookie },
+            .{ .name = "location", .value = "/" },
+        };
+
+        try request.respond("", .{
+            .status = .see_other,
+            .keep_alive = false,
+            .extra_headers = &headers,
+        });
+    }
+
+    fn isAuthorized(self: Server, request: *const std.http.Server.Request) bool {
+        const admin_hash = self.config.admin_hash;
+        const cookie = cookieValue(request, admin_cookie_name) orelse return false;
+        return verifySignedCookieValue(cookie, admin_hash, @divFloor(self.db.nowMillis(), 1000));
+    }
+
     pub fn listen(self: Server) !std.Io.net.Server {
         std.log.info("Server started, receiving requests on {s}:{d}", .{ self.host, self.port });
         return try self.addr.listen(self.io, .{ .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
@@ -219,11 +295,11 @@ fn matchRoute(method: std.http.Method, path: []const u8) ?Route {
         .GET => {
             if (std.mem.eql(u8, path, "/")) return .index;
             if (std.mem.startsWith(u8, path, "/app/") and path.len > "/app/".len) return .app;
+            if (std.mem.eql(u8, path, "/admin/createDaily")) return .createDaily;
         },
         .POST => {
             if (std.mem.eql(u8, path, "/v1/event")) return .event;
             if (std.mem.eql(u8, path, "/login")) return .login;
-            if (std.mem.eql(u8, path, "/admin/createDaily")) return .createDaily;
         },
         else => {},
     }
@@ -236,10 +312,6 @@ fn appKeyFromPath(path: []const u8) ?[]const u8 {
     const app_key = path["/app/".len..];
     if (app_key.len == 0) return null;
     return app_key;
-}
-
-fn handleLogin(request: *std.http.Server.Request) !void {
-    try respondText(request, "ok\n", .ok);
 }
 
 fn respondNoContent(request: *std.http.Server.Request) !void {
@@ -275,6 +347,82 @@ fn respondHtml(request: *std.http.Server.Request, body: []const u8, status: std.
         .keep_alive = false,
         .extra_headers = &text_html_headers,
     });
+}
+
+fn verifyPassword(admin_hash: []const u8, password: []const u8) bool {
+    var normalized_buf: [60]u8 = undefined;
+    const hash = normalizeBcryptHash(admin_hash, &normalized_buf) catch return false;
+
+    std.crypto.pwhash.bcrypt.strVerify(hash, password, .{
+        .silently_truncate_password = true,
+    }) catch return false;
+
+    return true;
+}
+
+fn normalizeBcryptHash(hash: []const u8, buf: *[60]u8) ![]const u8 {
+    if (std.mem.startsWith(u8, hash, "$2y$")) {
+        if (hash.len != buf.len) return error.InvalidHashLength;
+        @memcpy(buf, hash);
+        buf[2] = 'b';
+        return buf;
+    }
+
+    return hash;
+}
+
+fn formValue(body: []const u8, name: []const u8) ?[]const u8 {
+    var it = std.mem.splitScalar(u8, body, '&');
+    while (it.next()) |pair| {
+        const eq = std.mem.indexOfScalar(u8, pair, '=') orelse continue;
+        if (std.mem.eql(u8, pair[0..eq], name)) {
+            return pair[eq + 1 ..];
+        }
+    }
+    return null;
+}
+
+const admin_cookie_name = "meioziz_admin";
+const admin_cookie_max_age_seconds: i64 = 30 * 24 * 60 * 60;
+
+fn writeSignedCookieValue(out: []u8, admin_hash: []const u8, now_seconds: i64) ![]const u8 {
+    const expires = now_seconds + admin_cookie_max_age_seconds;
+
+    var message_buf: [64]u8 = undefined;
+    const message = try std.fmt.bufPrint(&message_buf, "admin:{d}", .{expires});
+
+    var mac: [std.crypto.auth.hmac.sha2.HmacSha256.mac_length]u8 = undefined;
+    std.crypto.auth.hmac.sha2.HmacSha256.create(&mac, message, admin_hash);
+
+    //  v1.<expires_unix_seconds>.<hex_hmac_sha256>
+    const mac_hex = std.fmt.bytesToHex(mac, .lower);
+    return try std.fmt.bufPrint(out, "v1.{d}.{s}", .{ expires, mac_hex[0..] });
+}
+
+fn verifySignedCookieValue(value: []const u8, admin_hash: []const u8, now_seconds: i64) bool {
+    if (!std.mem.startsWith(u8, value, "v1.")) return false;
+
+    const rest = value["v1.".len..];
+    const dot = std.mem.indexOfScalar(u8, rest, '.') orelse return false;
+
+    const expires_text = rest[0..dot];
+    const mac_hex = rest[dot + 1 ..];
+
+    if (mac_hex.len != std.crypto.auth.hmac.sha2.HmacSha256.mac_length * 2) return false;
+
+    const expires = std.fmt.parseInt(i64, expires_text, 10) catch return false;
+    if (expires < now_seconds) return false;
+
+    var message_buf: [64]u8 = undefined;
+    const message = std.fmt.bufPrint(&message_buf, "admin:{d}", .{expires}) catch return false;
+
+    var expected_mac: [std.crypto.auth.hmac.sha2.HmacSha256.mac_length]u8 = undefined;
+    std.crypto.auth.hmac.sha2.HmacSha256.create(&expected_mac, message, admin_hash);
+
+    var actual_mac: [std.crypto.auth.hmac.sha2.HmacSha256.mac_length]u8 = undefined;
+    _ = std.fmt.hexToBytes(&actual_mac, mac_hex) catch return false;
+
+    return std.mem.eql(u8, &expected_mac, &actual_mac);
 }
 
 fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
@@ -696,6 +844,61 @@ fn appendDay(html: *std.ArrayList(u8), allocator: std.mem.Allocator, day: i64) !
     try html.appendSlice(allocator, text);
 }
 
+fn respondLoginForm(request: *std.http.Server.Request, status: std.http.Status) !void {
+    try respondHtml(request,
+        \\<!doctype html>
+        \\<html lang="en">
+        \\<head>
+        \\  <meta charset="utf-8">
+        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
+        \\  <title>Login - Meioziz</title>
+        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+        \\</head>
+        \\<body>
+        \\  <main class="container py-5" style="max-width: 28rem">
+        \\    <h1 class="h3 mb-4">Login</h1>
+        \\    <form method="post" action="/login">
+        \\      <div class="mb-3">
+        \\        <label class="form-label" for="username">Username</label>
+        \\        <input class="form-control" id="username" name="username" autocomplete="username" autofocus>
+        \\      </div>
+        \\      <div class="mb-3">
+        \\        <label class="form-label" for="password">Password</label>
+        \\        <input class="form-control" id="password" name="password" type="password" autocomplete="current-password">
+        \\      </div>
+        \\      <button class="btn btn-primary" type="submit">Login</button>
+        \\    </form>
+        \\  </main>
+        \\</body>
+        \\</html>
+    , status);
+}
+
+fn headerValue(request: *const std.http.Server.Request, name: []const u8) ?[]const u8 {
+    var it = request.iterateHeaders();
+    while (it.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, name)) {
+            return header.value;
+        }
+    }
+    return null;
+}
+
+fn cookieValue(request: *const std.http.Server.Request, name: []const u8) ?[]const u8 {
+    const cookie_header = headerValue(request, "cookie") orelse return null;
+
+    var it = std.mem.splitScalar(u8, cookie_header, ';');
+    while (it.next()) |part| {
+        const trimmed = std.mem.trim(u8, part, " \t");
+        const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+        if (std.mem.eql(u8, trimmed[0..eq], name)) {
+            return trimmed[eq + 1 ..];
+        }
+    }
+
+    return null;
+}
+
 // we use UTC
 fn startOfDayMillis(now_ms: i64) i64 {
     return @divFloor(now_ms, db.day_ms) * db.day_ms;
@@ -719,7 +922,7 @@ test "match allowed routes" {
     try std.testing.expectEqual(Route.app, matchRoute(.GET, "/app/pairception"));
     try std.testing.expectEqual(Route.event, matchRoute(.POST, "/v1/event"));
     try std.testing.expectEqual(Route.login, matchRoute(.POST, "/login"));
-    try std.testing.expectEqual(Route.createDaily, matchRoute(.POST, "/admin/createDaily"));
+    try std.testing.expectEqual(Route.createDaily, matchRoute(.GET, "/admin/createDaily"));
 }
 
 test "reject unknown routes" {
@@ -743,4 +946,28 @@ test "extract app key from path" {
     try std.testing.expectEqualStrings("pairception", appKeyFromPath("/app/pairception").?);
     try std.testing.expectEqual(null, appKeyFromPath("/app/"));
     try std.testing.expectEqual(null, appKeyFromPath("/unknown"));
+}
+
+test "verify htpasswd bcrypt admin password" {
+    const hash = "$2y$12$qBlpx4Y61WRU7bIrhSGdwOyJumNNH/fChk40axsUWbF0NsSTy8uI2";
+
+    try std.testing.expect(verifyPassword(hash, "your-password"));
+    try std.testing.expect(!verifyPassword(hash, "wrong-password"));
+}
+
+test "extract form value" {
+    try std.testing.expectEqualStrings("admin", formValue("username=admin&password=secret", "username").?);
+    try std.testing.expectEqualStrings("secret", formValue("username=admin&password=secret", "password").?);
+    try std.testing.expectEqual(null, formValue("username=admin", "missing"));
+}
+
+test "signed admin cookie value" {
+    const admin_hash = "$2y$12$qBlpx4Y61WRU7bIrhSGdwOyJumNNH/fChk40axsUWbF0NsSTy8uI2";
+
+    var buf: [128]u8 = undefined;
+    const value = try writeSignedCookieValue(&buf, admin_hash, 1000);
+
+    try std.testing.expect(verifySignedCookieValue(value, admin_hash, 1000));
+    try std.testing.expect(!verifySignedCookieValue(value, admin_hash, 1000 + admin_cookie_max_age_seconds + 1));
+    try std.testing.expect(!verifySignedCookieValue(value, "different-secret", 1000));
 }

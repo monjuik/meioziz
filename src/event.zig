@@ -73,7 +73,7 @@ fn testConfig(active: bool) config.Config {
     };
 
     apps.items[0].active = active;
-    return config.Config{ .apps = &apps.items };
+    return config.Config{ .apps = &apps.items, .admin_hash = "" };
 }
 
 test "parse event request with value and installId" {

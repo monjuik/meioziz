@@ -20,8 +20,12 @@ POST /v1/event
 POST /login
 GET  /
 GET  /app/:code
+GET  /admin/createDaily
 ```
 
+All GET-endpoints are hidden behind the auth. 
+
+`/admin/createDaily` runs daily aggregation of the events in the database. After this raw events are deleted from the DB. NB! This endpoint is for testing or forcing it beacuse of the misconfiguration. Typically the app runs this on its own automatically.
 
 ## UI
 
