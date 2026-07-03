@@ -6,7 +6,7 @@ Your app sends events to the server, like "a game was finished with the score of
 
 It's very ecological:
 - self-efficient binary (though, Bootstrap and chart.js are loaded via CDN),
-- 2.5 MB RAM with 10k daily events (as SQLite keeps some indexes and cache in memory), 
+- about 3MB MB RAM with 10k daily events (as SQLite keeps some indexes and cache in memory) on Linux, 
 - less than 1ms for the REST API responses.
 
 ## Why am I doing it?
