@@ -66,9 +66,8 @@ fn createDailyScheduler(io: std.Io, database: *Database) void {
         std.log.info("Next daily aggregation scheduled in {d} ms", .{sleep_ms});
 
         const sleep_duration = std.Io.Duration.fromMilliseconds(sleep_ms);
-        std.Io.sleep(io, sleep_duration, .real) catch |err| {
-            std.log.err("daily aggregation scheduler sleep failed: {any}", .{err});
-            continue;
+        std.Io.sleep(io, sleep_duration, .real) catch |err| switch (err) {
+            error.Canceled => return,
         };
         _ = database.createDailyAggregates(std.heap.smp_allocator) catch |err| {
             std.log.err("scheduled daily aggregation failed: {any}", .{err});
