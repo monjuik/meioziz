@@ -1,0 +1,99 @@
+openapi: 3.1.0
+info:
+  title: Meioziz API
+  version: 0.9.0
+  description: Tiny privacy-first event stats API for indie apps.
+
+servers:
+  - url: http://localhost:8123
+    description: Local server
+
+paths:
+  /v1/event:
+    post:
+      operationId: createEvent
+      summary: Submit an event
+      description: Stores a raw event for later daily aggregation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventRequest"
+            examples:
+              basic:
+                summary: Basic event
+                value:
+                  app: pairception
+                  code: daily-reward
+              withValue:
+                summary: Event with numeric value
+                value:
+                  app: pairception
+                  code: game-finished
+                  value: 100
+              withInstallId:
+                summary: Event with installId
+                value:
+                  app: pairception
+                  code: installed
+                  installId: 019f285e-72a0-7f47-bf5e-0ede086fb46f
+      responses:
+        "204":
+          description: Event accepted.
+        "400":
+          description: Invalid request body, unknown or inactive app, invalid field value, or body too large.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "bad request\n"
+        "500":
+          description: Internal server error.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: internal server error
+
+components:
+  schemas:
+    EventRequest:
+      type: object
+      additionalProperties: true
+      required:
+        - app
+        - code
+      properties:
+        app:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._ -]+$"
+          description: Configured application key. Leading and trailing whitespace is trimmed by the server.
+          examples:
+            - pairception
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9._ -]+$"
+          description: Event code. Leading and trailing whitespace is trimmed by the server.
+          examples:
+            - game-finished
+        value:
+          type:
+            - integer
+            - "null"
+          format: int64
+          description: Optional numeric event value.
+          examples:
+            - 100
+        installId:
+          type:
+            - string
+            - "null"
+          maxLength: 128
+          description: Optional install identifier used to calculate unique installs in daily aggregates.
+          examples:
+            - 019f285e-72a0-7f47-bf5e-0ede086fb46f
