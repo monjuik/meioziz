@@ -67,7 +67,7 @@ pub const Server = struct {
     fn handleConnection(self: Server, connection: std.Io.net.Stream) !void {
         defer connection.close(self.io);
 
-        var read_buffer: [4096]u8 = undefined;
+        var read_buffer: [64 * 1024]u8 = undefined;
         var write_buffer: [4096]u8 = undefined;
 
         var stream_reader = std.Io.net.Stream.Reader.init(connection, self.io, &read_buffer);
@@ -244,8 +244,15 @@ pub const Server = struct {
             return;
         };
 
-        const username = formValue(body, "username") orelse "";
-        const password = formValue(body, "password") orelse "";
+        const username = (formValue(allocator, body, "username") catch {
+            try respondBadRequest(request);
+            return;
+        }) orelse "";
+
+        const password = (formValue(allocator, body, "password") catch {
+            try respondBadRequest(request);
+            return;
+        }) orelse "";
 
         if (!std.mem.eql(u8, username, "admin") or !verifyPassword(admin_hash, password)) {
             try respondLoginForm(request, .unauthorized);
@@ -371,15 +378,49 @@ fn normalizeBcryptHash(hash: []const u8, buf: *[60]u8) ![]const u8 {
     return hash;
 }
 
-fn formValue(body: []const u8, name: []const u8) ?[]const u8 {
+fn formValue(allocator: std.mem.Allocator, body: []const u8, name: []const u8) !?[]const u8 {
     var it = std.mem.splitScalar(u8, body, '&');
     while (it.next()) |pair| {
         const eq = std.mem.indexOfScalar(u8, pair, '=') orelse continue;
-        if (std.mem.eql(u8, pair[0..eq], name)) {
-            return pair[eq + 1 ..];
+
+        const decoded_name = try decodeFormUrlEncoded(allocator, pair[0..eq]);
+        defer allocator.free(decoded_name);
+
+        if (std.mem.eql(u8, decoded_name, name)) {
+            return try decodeFormUrlEncoded(allocator, pair[eq + 1 ..]);
         }
     }
+
     return null;
+}
+
+fn decodeFormUrlEncoded(allocator: std.mem.Allocator, value: []const u8) ![]const u8 {
+    var decoded: std.ArrayList(u8) = .empty;
+    errdefer decoded.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < value.len) {
+        switch (value[i]) {
+            '+' => {
+                try decoded.append(allocator, ' ');
+                i += 1;
+            },
+            '%' => {
+                if (value.len - i < 3) return error.InvalidFormEncoding;
+                const byte = std.fmt.parseInt(u8, value[i + 1 .. i + 3], 16) catch {
+                    return error.InvalidFormEncoding;
+                };
+                try decoded.append(allocator, byte);
+                i += 3;
+            },
+            else => |char| {
+                try decoded.append(allocator, char);
+                i += 1;
+            },
+        }
+    }
+
+    return try decoded.toOwnedSlice(allocator);
 }
 
 const admin_cookie_name = "meioziz_admin";
@@ -956,9 +997,17 @@ test "verify htpasswd bcrypt admin password" {
 }
 
 test "extract form value" {
-    try std.testing.expectEqualStrings("admin", formValue("username=admin&password=secret", "username").?);
-    try std.testing.expectEqualStrings("secret", formValue("username=admin&password=secret", "password").?);
-    try std.testing.expectEqual(null, formValue("username=admin", "missing"));
+    const allocator = std.testing.allocator;
+
+    const username = (try formValue(allocator, "username=admin&password=secret", "username")).?;
+    defer allocator.free(username);
+    try std.testing.expectEqualStrings("admin", username);
+
+    const password = (try formValue(allocator, "username=admin&password=secret", "password")).?;
+    defer allocator.free(password);
+    try std.testing.expectEqualStrings("secret", password);
+
+    try std.testing.expectEqual(null, try formValue(allocator, "username=admin", "missing"));
 }
 
 test "signed admin cookie value" {
@@ -970,4 +1019,46 @@ test "signed admin cookie value" {
     try std.testing.expect(verifySignedCookieValue(value, admin_hash, 1000));
     try std.testing.expect(!verifySignedCookieValue(value, admin_hash, 1000 + admin_cookie_max_age_seconds + 1));
     try std.testing.expect(!verifySignedCookieValue(value, "different-secret", 1000));
+}
+
+test "decode form value" {
+    const allocator = std.testing.allocator;
+
+    const plus = (try formValue(allocator, "password=a%2Bb", "password")).?;
+    defer allocator.free(plus);
+    try std.testing.expectEqualStrings("a+b", plus);
+
+    const ampersand = (try formValue(allocator, "password=a%26b", "password")).?;
+    defer allocator.free(ampersand);
+    try std.testing.expectEqualStrings("a&b", ampersand);
+
+    const space = (try formValue(allocator, "password=a+b", "password")).?;
+    defer allocator.free(space);
+    try std.testing.expectEqualStrings("a b", space);
+
+    const equals = (try formValue(allocator, "password=a%3Db", "password")).?;
+    defer allocator.free(equals);
+    try std.testing.expectEqualStrings("a=b", equals);
+
+    const percent = (try formValue(allocator, "password=%25", "password")).?;
+    defer allocator.free(percent);
+    try std.testing.expectEqualStrings("%", percent);
+
+    const utf8 = (try formValue(allocator, "password=%D0%BF", "password")).?;
+    defer allocator.free(utf8);
+    try std.testing.expectEqualStrings("п", utf8);
+}
+
+test "reject invalid form encoding" {
+    const allocator = std.testing.allocator;
+
+    try std.testing.expectError(
+        error.InvalidFormEncoding,
+        formValue(allocator, "password=a%", "password"),
+    );
+
+    try std.testing.expectError(
+        error.InvalidFormEncoding,
+        formValue(allocator, "password=a%ZZ", "password"),
+    );
 }
