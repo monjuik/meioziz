@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Linux release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Test
+        run: zig build test
+
+      - name: Build
+        run: zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
+
+      - name: Package
+        run: |
+          asset_name="meioziz-${{ github.ref_name }}-x86_64-linux-musl"
+          mkdir -p "dist/${asset_name}"
+          cp zig-out/bin/meioziz "dist/${asset_name}/"
+          cp README.md LICENSE "dist/${asset_name}/"
+          tar -C dist -czf "dist/${asset_name}.tar.gz" "${asset_name}"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.tar.gz

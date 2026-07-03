@@ -1,6 +1,6 @@
 .{
     .name = .meioziz,
-    .version = "0.16.0",
+    .version = "0.9.0",
     .dependencies = .{
         .zqlite = .{
             .url = "git+https://github.com/karlseguin/zqlite.zig?ref=master#5ac4cabe95a6d7faa7baf0da8057a8e6e8a227a1",
