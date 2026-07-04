@@ -39,19 +39,15 @@ const text_html_headers = [_]std.http.Header{
 const max_event_body_size = 16 * 1024;
 
 pub const Server = struct {
-    host: []const u8,
-    port: u16,
     addr: std.Io.net.IpAddress,
     io: std.Io,
     db: *Database,
     config: Config,
 
     pub fn init(io: std.Io, cfg: Config, database: *Database) !Server {
-        const host: []const u8 = "0.0.0.0";
-        const port: u16 = cfg.port;
-        const addr = try std.Io.net.IpAddress.parseIp4(host, port);
+        const addr = try std.Io.net.IpAddress.parseIp4(cfg.host, cfg.port);
 
-        return .{ .host = host, .port = port, .addr = addr, .io = io, .db = database, .config = cfg };
+        return .{ .addr = addr, .io = io, .db = database, .config = cfg };
     }
 
     pub fn run(self: Server) !void {
@@ -292,7 +288,7 @@ pub const Server = struct {
     }
 
     pub fn listen(self: Server) !std.Io.net.Server {
-        std.log.info("Server started, receiving requests on {s}:{d}", .{ self.host, self.port });
+        std.log.info("Server started, receiving requests on {s}:{d}", .{ self.config.host, self.config.port });
         return try self.addr.listen(self.io, .{ .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
     }
 };

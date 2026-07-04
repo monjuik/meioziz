@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Config = struct {
+    host: []const u8 = "0.0.0.0",
     port: u16 = 8123,
     database: [*:0]const u8 = "meioziz.db",
     apps: []App = &.{},
