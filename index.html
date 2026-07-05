@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-        <title>Meioziz</title>
+        <title>Meioziz — Self-Hosted Event Analytics for Apps and Games</title>
 
         <link
             href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
@@ -12,12 +12,317 @@
         />
     </head>
     <body>
-        <header></header>
+        <section class="hero text-center">
+            <div class="container py-5">
+                <div class="col-lg-8 mx-auto">
+                    <h1 class="display-3 fw-bold">Meioziz</h1>
 
-        <main>
-            <div class="container py-5">Meioziz</div>
-        </main>
+                    <p class="lead mt-4">
+                        Simple analytics for your games and apps. It lets you
+                        know whats happening in your app.
+                    </p>
 
-        <footer></footer>
+                    <p class="mt-3">
+                        Collects product events, stores everything itself. No
+                        spying or sending info to the third parties. Your app –
+                        your data.
+                    </p>
+
+                    <a
+                        class="btn btn-dark mt-3"
+                        href="https://github.com/monjuik/meioziz"
+                    >
+                        View on GitHub
+                    </a>
+                </div>
+                <img
+                    class="img-fluid mt-5"
+                    src="meioziz-screenshot-app.png"
+                    alt="Meioziz app statistics dashboard"
+                />
+            </div>
+        </section>
+
+        <section class="bg-dark text-white py-5">
+            <div class="container py-5">
+                <h2 class="display-5 fw-bold">How it works</h2>
+
+                <ol class="mt-5 font-monospace">
+                    <li class="mb-3">Your app sends an event</li>
+                    <li class="mb-3">Meioziz stores it</li>
+                    <li class="mb-3">
+                        Events are aggregated into daily statistics
+                    </li>
+                    <li>Open the dashboard and see what happened</li>
+                </ol>
+            </div>
+        </section>
+
+        <section class="py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">What can you track?</h2>
+
+                    <p class="lead mt-4">
+                        Any facts happened in your app. You can attach an
+                        integer value to it.
+                    </p>
+
+                    <ul class="mt-4">
+                        <li>Daily reward received</li>
+                        <li>A game finished with the score 42</li>
+                        <li>Shop was opened, player has 900 gold</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-dark text-white py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">No user tracking</h2>
+
+                    <p class="lead mt-4">
+                        You do not need any external SDK. Meioziz tracks tiny
+                        events, not users
+                    </p>
+
+                    <p class="mt-3">
+                        No user or devices profiles by default, no cross-app
+                        tracking, no geo, cellular or personal data. You can add
+                        <i>optional install ID</i> to the event, Meioziz treats
+                        it as an app-provided identifier, not a user account or
+                        advertising profile and uses them to calculate unique
+                        events.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section class="py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">Tiny by design</h2>
+
+                    <p class="lead mt-4">
+                        Meioziz is intentionally small and focused.
+                    </p>
+
+                    <ul class="mt-4">
+                        <li>Written in Zig</li>
+                        <li>Built-in SQLite storage</li>
+                        <li>Single self-contained binary</li>
+                        <li>Consumes around <b>3 MB RAM</b><sup>*</sup></li>
+                        <li>
+                            ~<b>2.6 ms</b> average event ingestion on a small
+                            shared server<sup>**</sup>
+                        </li>
+                    </ul>
+
+                    <div class="mt-4 small text-secondary">
+                        <sup>*</sup> With up to 10,000 daily events, as SQLite
+                        consumes RAM for the cache <br />
+                        <sup>**</sup> Measured local POST requests on a 2 vCPU /
+                        4 GB RAM server also running Nginx, PostgreSQL and other
+                        web services. Real-world: <b>~125 ms</b> from my laptop
+                        to the production server over HTTPS
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-dark text-white py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">No SDK required</h2>
+
+                    <p class="lead mt-4">
+                        No client library is required. If your app can send an
+                        HTTP request, it can send an event to Meioziz
+                    </p>
+
+                    <p class="mt-3">
+                        Send analytics in the background and keep it outside the
+                        user flow. The app should not wait for the event request
+                        to finish (fire and forget).
+                    </p>
+
+                    <pre class="mt-5 p-4 bg-black"><code>POST /v1/event
+
+        {
+          "app": "my-game",
+          "code": "daily-reward-received",
+        }</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">What Meioziz does not do</h2>
+
+                    <p class="lead mt-4">
+                        It is not a product analytics platform. Server collects
+                        events, aggregates them into daily statistics and shows
+                        the result. <i>It does less on purpose.</i>
+                    </p>
+
+                    <ul class="mt-4">
+                        <li>No user profiles</li>
+                        <li>No session replay</li>
+                        <li>No funnels</li>
+                        <li>No attribution</li>
+                        <li>No A/B testing</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-dark text-white py-5">
+            <div class="container py-5">
+                <div class="col-lg-8">
+                    <h2 class="display-5 fw-bold">Get started</h2>
+
+                    <ol class="mt-5">
+                        <li class="mb-4">
+                          <strong>Run Meioziz</strong>
+
+                          <div class="mt-2 small text-white-50">
+                            For production, run it behind a reverse proxy such as Nginx.
+                            <a
+                              class="link-light"
+                              href="https://github.com/monjuik/meioziz#deployment"
+                            >
+                              See deployment recommendations</a>.
+                          </div>
+                        </li>
+                        <li>Send an event</li>
+                        <li>Open the dashboard</li>
+                    </ol>
+
+                    <h3 class="mt-5">curl</h3>
+
+                    <pre
+                        class="mt-5 p-4 bg-black"
+                    ><code>curl -X POST https://your-server.example/v1/event \
+     -H 'Content-Type: application/json' \
+     -d '{"app":"my-game","code":"daily-reward-received"}'</code></pre>
+
+                    <h3 class="mt-5">Flutter</h3>
+
+                    <pre
+                        class="mt-4 p-4 bg-black"
+                    ><code>
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+const endpoint = 'https://example.com/v1/event';
+
+void track(String code, {int? value, String? installId}) {
+    unawaited(_send(code, value: value));
+}
+
+Future<void> _send(
+    String code, {
+    int? value,
+}) async {
+    final event = {
+    'app': 'my-game',
+    'code': code,
+    if (value != null) 'value': value,
+    };
+
+    try {
+        await http
+            .post(
+                Uri.parse(endpoint),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(event),
+            )
+            .timeout(const Duration(seconds: 2));
+        } catch (_) {
+        // Analytics should not affect the application flow.
+    }
+}
+                    </code></pre>
+                </div>
+            </div>
+        </section>
+
+
+        <section class="py-5">
+          <div class="container py-5">
+            <div class="col-lg-8">
+              <h2 class="display-5 fw-bold">
+                FAQ
+              </h2>
+
+              <h3 class="h5 mt-4">
+                Is Meioziz self-hosted?
+              </h3>
+              <p>
+                Yes. You can build the app from sources or <a href"https://github.com/monjuik/meioziz/releases">get a binary</a> and run it on your server.
+              </p>
+
+              <h3 class="h5 mt-4">
+                What is installId?
+              </h3>
+              <p>
+                It is an optional app-provided installation identifier. Meioziz uses it to calculate "uniques" aggregate for an event type, it shows how many unique installations have sent this event.
+              </p>
+
+              <h3 class="h5 mt-4">
+                Can I use Meioziz for mobile games?
+              </h3>
+              <a>
+                  Yes. You can use it as you like. It's licensed under <a href="https://github.com/monjuik/meioziz?tab=Apache-2.0-1-ov-file#">Apache-2.0 license</a>.
+              </p>
+
+              <h3 class="h5 mt-4">
+                How long is data stored?
+              </h3>
+              <p>
+                  As to 0.9.0 version: events are deleted after the aggregation, that means that tomorrow they will be gone. Daily aggregates are not deleted from the database. Dashboard shows data for the previous 28 days.
+              </p>
+
+              <h3 class="h5 mt-4">
+                Do you offer a hosted version?
+              </h3>
+              <p>
+                Not yet. I am considering it and would like to understand whether
+                there is real interest.
+                <a href="https://github.com/monjuik/meioziz/discussions/1">
+                  Let me know on GitHub
+                </a>.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <footer class="border-top py-4">
+          <div class="container small text-secondary">
+            <span>Meioziz · Apache-2.0</span>
+
+            <span class="mx-2">·</span>
+
+            <a
+              class="link-secondary"
+              href="https://github.com/monjuik/meioziz"
+            >
+              GitHub</a>
+
+            <span class="mx-2">·</span>
+
+            <a
+              class="link-secondary"
+              href="https://github.com/monjuik/meioziz/discussions"
+            >
+              Discussions
+            </a>
+          </div>
+        </footer>
     </body>
 </html>
