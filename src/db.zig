@@ -53,6 +53,7 @@ pub const Database = struct {
         var db = Database{ .conn = conn, .io = io };
         try db.conn.busyTimeout(2000);
         try db.exec("PRAGMA journal_mode = WAL;");
+        try db.exec("PRAGMA synchronous = NORMAL;");
 
         return db;
     }
