@@ -18,7 +18,7 @@ pub const Event = struct {
     value: ?i64,
     installId: ?[]const u8,
 
-    pub fn init(app_config: *const config.Config, request: EventRequest) !Event {
+    pub fn init(app_config: *const config.Config, request: *const EventRequest) !Event {
         const key = std.mem.trim(u8, request.app, " \t\r\n");
         if (key.len == 0) return error.EmptyApp;
         if (key.len > max_length) return error.AppTooLong;
@@ -114,7 +114,7 @@ test "create event from request" {
         .installId = "test-install",
     };
 
-    const created = try Event.init(&app_config, request);
+    const created = try Event.init(&app_config, &request);
 
     try std.testing.expectEqualStrings("pairception", created.app.key);
     try std.testing.expectEqualStrings("game-finished", created.code);
@@ -130,7 +130,7 @@ test "reject event with empty app" {
         .code = "game-finished",
     };
 
-    try std.testing.expectError(error.EmptyApp, Event.init(&app_config, request));
+    try std.testing.expectError(error.EmptyApp, Event.init(&app_config, &request));
 }
 
 test "reject event with empty code" {
@@ -141,7 +141,7 @@ test "reject event with empty code" {
         .code = "   ",
     };
 
-    try std.testing.expectError(error.EmptyCode, Event.init(&app_config, request));
+    try std.testing.expectError(error.EmptyCode, Event.init(&app_config, &request));
 }
 
 test "reject event with unknown app" {
@@ -152,7 +152,7 @@ test "reject event with unknown app" {
         .code = "game-finished",
     };
 
-    try std.testing.expectError(error.UnknownApp, Event.init(&app_config, request));
+    try std.testing.expectError(error.UnknownApp, Event.init(&app_config, &request));
 }
 
 test "reject event with inactive app" {
@@ -163,7 +163,7 @@ test "reject event with inactive app" {
         .code = "game-finished",
     };
 
-    try std.testing.expectError(error.InactiveApp, Event.init(&app_config, request));
+    try std.testing.expectError(error.InactiveApp, Event.init(&app_config, &request));
 }
 
 test "allow valid event code characters" {
@@ -174,7 +174,7 @@ test "allow valid event code characters" {
         .code = "Game-123.finished_ok",
     };
 
-    const created = try Event.init(&app_config, request);
+    const created = try Event.init(&app_config, &request);
 
     try std.testing.expectEqualStrings("Game-123.finished_ok", created.code);
 }
@@ -187,7 +187,7 @@ test "reject invalid app characters" {
         .code = "game-finished",
     };
 
-    try std.testing.expectError(error.InvalidApp, Event.init(&app_config, request));
+    try std.testing.expectError(error.InvalidApp, Event.init(&app_config, &request));
 }
 
 test "reject invalid code characters" {
@@ -198,7 +198,7 @@ test "reject invalid code characters" {
         .code = "game finished 🙈",
     };
 
-    try std.testing.expectError(error.InvalidCode, Event.init(&app_config, request));
+    try std.testing.expectError(error.InvalidCode, Event.init(&app_config, &request));
 }
 
 test "reject too long install id" {
@@ -210,5 +210,5 @@ test "reject too long install id" {
         .installId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
 
-    try std.testing.expectError(error.InstallIdTooLong, Event.init(&app_config, request));
+    try std.testing.expectError(error.InstallIdTooLong, Event.init(&app_config, &request));
 }

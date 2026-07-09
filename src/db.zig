@@ -54,6 +54,8 @@ pub const Database = struct {
         try db.conn.busyTimeout(2000);
         try db.exec("PRAGMA journal_mode = WAL;");
         try db.exec("PRAGMA synchronous = NORMAL;");
+        // more on that here: https://sqlite.org/pragma.html#pragma_synchronous
+        // this is good fast mode for this app
 
         return db;
     }
@@ -73,12 +75,12 @@ pub const Database = struct {
     pub fn migrate(self: *Database) !void {
         try self.ensureMigrationTable();
 
-        for (migrations) |migration| {
+        for (&migrations) |*migration| {
             try self.applyMigration(migration);
         }
     }
 
-    pub fn insertEvent(self: *Database, e: event.Event) !void {
+    pub fn insertEvent(self: *Database, e: *const event.Event) !void {
         self.mutex.lockUncancelable(self.io);
         defer self.mutex.unlock(self.io);
 
@@ -192,7 +194,7 @@ pub const Database = struct {
         );
     }
 
-    fn applyMigration(self: *Database, migration: Migration) !void {
+    fn applyMigration(self: *Database, migration: *const Migration) !void {
         if (try self.isMigrationApplied(migration.name)) {
             return;
         }

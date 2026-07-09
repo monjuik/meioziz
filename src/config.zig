@@ -7,7 +7,7 @@ pub const Config = struct {
     apps: []App = &.{},
     admin_hash: []const u8,
 
-    pub fn deinit(self: Config, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *const Config, allocator: std.mem.Allocator) void {
         for (self.apps) |app| {
             allocator.free(app.name);
             allocator.free(app.key);

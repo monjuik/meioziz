@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
     const create_daily_thread = try std.Thread.spawn(.{}, createDailyScheduler, .{ io, &database });
     create_daily_thread.detach();
 
-    const server = try Server.init(io, app_config, &database);
+    const server = try Server.init(io, &app_config, &database);
     try server.run();
 }
 

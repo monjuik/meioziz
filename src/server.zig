@@ -42,15 +42,15 @@ pub const Server = struct {
     addr: std.Io.net.IpAddress,
     io: std.Io,
     db: *Database,
-    config: Config,
+    config: *const Config,
 
-    pub fn init(io: std.Io, cfg: Config, database: *Database) !Server {
+    pub fn init(io: std.Io, cfg: *const Config, database: *Database) !Server {
         const addr = try std.Io.net.IpAddress.parseIp4(cfg.host, cfg.port);
 
         return .{ .addr = addr, .io = io, .db = database, .config = cfg };
     }
 
-    pub fn run(self: Server) !void {
+    pub fn run(self: *const Server) !void {
         var listening = try self.listen();
         while (true) {
             const connection = try listening.accept(self.io);
@@ -60,7 +60,7 @@ pub const Server = struct {
         }
     }
 
-    fn handleConnection(self: Server, connection: std.Io.net.Stream) !void {
+    fn handleConnection(self: *const Server, connection: std.Io.net.Stream) !void {
         defer connection.close(self.io);
 
         var read_buffer: [64 * 1024]u8 = undefined;
@@ -75,7 +75,7 @@ pub const Server = struct {
         try self.handleRequest(&request);
     }
 
-    fn handleRequest(self: Server, request: *std.http.Server.Request) !void {
+    fn handleRequest(self: *const Server, request: *std.http.Server.Request) !void {
         const route = matchRoute(request.head.method, request.head.target) orelse {
             try respondNotFound(request);
             return;
@@ -95,7 +95,7 @@ pub const Server = struct {
         }
     }
 
-    fn handleEvent(self: Server, request: *std.http.Server.Request) !void {
+    fn handleEvent(self: *const Server, request: *std.http.Server.Request) !void {
         var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
         defer request_arena.deinit();
 
@@ -123,12 +123,12 @@ pub const Server = struct {
             return;
         };
 
-        const created_event = event.Event.init(&self.config, event_request) catch |err| {
+        const created_event = event.Event.init(self.config, &event_request) catch |err| {
             std.log.err("invalid event: {any}", .{err});
             try respondBadRequest(request);
             return;
         };
-        self.db.insertEvent(created_event) catch |err| {
+        self.db.insertEvent(&created_event) catch |err| {
             std.log.err("failed to insert event: {any}", .{err});
             try respondInternalError(request);
             return;
@@ -137,7 +137,7 @@ pub const Server = struct {
         try respondNoContent(request);
     }
 
-    fn handleIndex(self: Server, request: *std.http.Server.Request) !void {
+    fn handleIndex(self: *const Server, request: *std.http.Server.Request) !void {
         const since_ms = startOfDayMillis(self.db.nowMillis());
 
         var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
@@ -168,7 +168,7 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
-    fn handleCreateDaily(self: Server, request: *std.http.Server.Request) !void {
+    fn handleCreateDaily(self: *const Server, request: *std.http.Server.Request) !void {
         var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
         defer request_arena.deinit();
 
@@ -189,7 +189,7 @@ pub const Server = struct {
         try respondText(request, body, .ok);
     }
 
-    fn handleApp(self: Server, request: *std.http.Server.Request) !void {
+    fn handleApp(self: *const Server, request: *std.http.Server.Request) !void {
         const app_key = appKeyFromPath(request.head.target) orelse {
             try respondNotFound(request);
             return;
@@ -215,7 +215,7 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
-    fn handleLogin(self: Server, request: *std.http.Server.Request) !void {
+    fn handleLogin(self: *const Server, request: *std.http.Server.Request) !void {
         const admin_hash = self.config.admin_hash;
 
         const content_length = request.head.content_length orelse {
@@ -281,13 +281,13 @@ pub const Server = struct {
         });
     }
 
-    fn isAuthorized(self: Server, request: *const std.http.Server.Request) bool {
+    fn isAuthorized(self: *const Server, request: *const std.http.Server.Request) bool {
         const admin_hash = self.config.admin_hash;
         const cookie = cookieValue(request, admin_cookie_name) orelse return false;
         return verifySignedCookieValue(cookie, admin_hash, @divFloor(self.db.nowMillis(), 1000));
     }
 
-    pub fn listen(self: Server) !std.Io.net.Server {
+    pub fn listen(self: *const Server) !std.Io.net.Server {
         std.log.info("Server started, receiving requests on {s}:{d}", .{ self.config.host, self.config.port });
         return try self.addr.listen(self.io, .{ .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
     }
@@ -689,7 +689,7 @@ fn renderEventCodeBlock(
         \\
     );
 
-    for (rows) |row| {
+    for (rows) |*row| {
         try renderDailyAggregateRow(html, allocator, row);
     }
 
@@ -788,7 +788,7 @@ fn appendIntChartDataset(
             try html.appendSlice(allocator, ", ");
         }
 
-        const row = rows[value_index];
+        const row = &rows[value_index];
         switch (metric) {
             .count => try appendInt(html, allocator, row.count),
             .uniques => try appendNullableInt(html, allocator, row.uniques, "null"),
@@ -810,7 +810,7 @@ fn appendIntChartDataset(
 fn renderDailyAggregateRow(
     html: *std.ArrayList(u8),
     allocator: std.mem.Allocator,
-    row: db.DailyAggregate,
+    row: *const db.DailyAggregate,
 ) !void {
     try html.appendSlice(allocator,
         \\            <tr>
@@ -942,7 +942,7 @@ fn startOfDayMillis(now_ms: i64) i64 {
 }
 
 fn findEventCount(counts: []const db.AppEventCount, app_key: []const u8) i64 {
-    for (counts) |count| {
+    for (counts) |*count| {
         if (std.mem.eql(u8, count.app_key, app_key)) {
             return count.count;
         }
