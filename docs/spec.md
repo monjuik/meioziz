@@ -45,6 +45,18 @@ sqlite> .tables
 sqlite> SELECT * FROM migration;
 ```
 
+Take a look at current entries in raw:
+
+```sql
+SELECT
+    code,
+    COUNT(*) AS events_count
+FROM raw
+WHERE app = "pairception"
+GROUP BY code
+ORDER BY events_count DESC, code ASC;
+```
+
 ---
 
 ## Tests with ab
