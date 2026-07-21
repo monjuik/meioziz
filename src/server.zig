@@ -81,6 +81,11 @@ pub const Server = struct {
             return;
         };
 
+        if (self.config.admin_hash.len == 0 and route.requiresAdmin()) {
+            try respondNotFound(request);
+            return;
+        }
+
         if (route.requiresAdmin() and !self.isAuthorized(request)) {
             try respondLoginForm(request, .unauthorized);
             return;
