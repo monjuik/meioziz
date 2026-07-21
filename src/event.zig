@@ -212,3 +212,36 @@ test "reject too long install id" {
 
     try std.testing.expectError(error.InstallIdTooLong, Event.init(&app_config, &request));
 }
+
+test "fuzz event request parsing" {
+    try std.testing.fuzz({}, fuzzEventRequestParsing, .{
+        // First four bytes — little-endian data length for smith.slice().
+        .corpus = &.{
+            "\x02\x00\x00\x00{}",
+            "\x2c\x00\x00\x00{\"app\":\"pairception\",\"code\":\"game-finished\"}",
+            "\x46\x00\x00\x00{\"app\":\"pairception\",\"code\":\"installed\",\"value\":100,\"installId\":\"abc\"}",
+        },
+    });
+}
+
+fn fuzzEventRequestParsing(_: void, smith: *std.testing.Smith) !void {
+    var body_buffer: [16 * 1024]u8 = undefined;
+    const body = body_buffer[0..smith.slice(&body_buffer)];
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const request = parse(arena.allocator(), body) catch return;
+
+    const app_config = testConfig(true);
+    const created = Event.init(&app_config, &request) catch return;
+
+    try std.testing.expectEqualStrings("pairception", created.app.key);
+    try std.testing.expect(created.code.len > 0);
+    try std.testing.expect(created.code.len <= max_length);
+    try std.testing.expect(isValidCode(created.code));
+
+    if (created.installId) |install_id| {
+        try std.testing.expect(install_id.len <= max_length);
+    }
+}

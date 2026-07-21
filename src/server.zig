@@ -1063,3 +1063,20 @@ test "reject invalid form encoding" {
         formValue(allocator, "password=a%ZZ", "password"),
     );
 }
+
+test "fuzz form URL decoding" {
+    try std.testing.fuzz({}, fuzzFormUrlDecoding, .{});
+}
+
+fn fuzzFormUrlDecoding(_: void, smith: *std.testing.Smith) !void {
+    var input_buffer: [4096]u8 = undefined;
+    const input = input_buffer[0..smith.slice(&input_buffer)];
+
+    const decoded = decodeFormUrlEncoded(std.testing.allocator, input) catch |err| switch (err) {
+        error.InvalidFormEncoding => return,
+        else => return err,
+    };
+    defer std.testing.allocator.free(decoded);
+
+    try std.testing.expect(decoded.len <= input.len);
+}

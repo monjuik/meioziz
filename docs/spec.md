@@ -61,6 +61,16 @@ ORDER BY events_count DESC, code ASC;
 
 ## Tests with ab
 
-`printf '{"app":"pairception","code":"game-finished"}' > event.json`
+```bash
+printf '{"app":"pairception","code":"game-finished"}' > event.json
+```
 
-`ab -n 100000 -c 8 -p event.json -T application/json http://127.0.0.1:9000/v1/event`
+```bash
+ab -n 100000 -c 8 -p event.json -T application/json http://127.0.0.1:9000/v1/event
+```
+
+## Fuzz testing
+
+```bash
+zig build -j1 test -Doptimize=ReleaseSafe --fuzz=100K
+```
