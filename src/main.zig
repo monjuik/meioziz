@@ -41,8 +41,8 @@ pub fn main(init: std.process.Init) !void {
 
     try database.migrate();
 
-    const create_daily_thread = try std.Thread.spawn(.{}, createDailyScheduler, .{ io, &database });
-    create_daily_thread.detach();
+    const daily_thread = try std.Thread.spawn(.{}, createDailyScheduler, .{ io, &database, app_config.retention });
+    daily_thread.detach();
 
     const server = try Server.init(io, &app_config, &database);
     try server.run();
@@ -57,7 +57,7 @@ fn nextCreateDailyMillis(now_ms: i64) i64 {
     return today_run + db.day_ms;
 }
 
-fn createDailyScheduler(io: std.Io, database: *Database) void {
+fn createDailyScheduler(io: std.Io, database: *Database, retention: config.Retention) void {
     while (true) {
         const now = database.nowMillis();
         const next_run = nextCreateDailyMillis(now);
@@ -71,7 +71,14 @@ fn createDailyScheduler(io: std.Io, database: *Database) void {
         };
         _ = database.createDailyAggregates(std.heap.smp_allocator) catch |err| {
             std.log.err("scheduled daily aggregation failed: {any}", .{err});
+            continue;
         };
+
+        if (retention.days) |days| {
+            database.deleteOldDailyAggregates(days) catch |err| {
+                std.log.err("scheduled daily retention failed: {any}", .{err});
+            };
+        }
     }
 }
 

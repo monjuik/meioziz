@@ -274,6 +274,24 @@ pub const Database = struct {
         return result;
     }
 
+    pub fn deleteOldDailyAggregates(self: *Database, days: u32) !void {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        const started = self.nowMillis();
+        const cutoff = retentionCutoffMillis(started, days);
+
+        try self.conn.exec(
+            "DELETE FROM daily WHERE day < ?1",
+            .{cutoff},
+        );
+
+        std.log.info(
+            "Daily retention finished: rows_deleted={d}, elapsed={d}ms",
+            .{ self.conn.changes(), self.nowMillis() - started },
+        );
+    }
+
     fn daysToProcess(self: *Database, allocator: std.mem.Allocator, before_ms: i64) ![]i64 {
         var result: std.ArrayList(i64) = .empty;
         errdefer result.deinit(allocator);
@@ -351,6 +369,10 @@ pub fn startOfDayMillis(now_ms: i64) i64 {
     return @divFloor(now_ms, day_ms) * day_ms;
 }
 
+fn retentionCutoffMillis(now_ms: i64, days: u32) i64 {
+    return startOfDayMillis(now_ms) - @as(i64, days) * day_ms;
+}
+
 test "migrate creates raw table and records migration" {
     const io = std.testing.io;
     var db = try Database.open(io, ":memory:");
@@ -423,4 +445,22 @@ test "aggregate complete raw days" {
     defer remaining_raw.deinit();
 
     try std.testing.expectEqual(@as(i64, 1), remaining_raw.int(0));
+}
+
+test "retention cutoff follows UTC calendar days" {
+    const today: i64 = 1782691200000;
+    const expected = today - 30 * day_ms;
+
+    try std.testing.expectEqual(
+        expected,
+        retentionCutoffMillis(today, 30),
+    );
+    try std.testing.expectEqual(
+        expected,
+        retentionCutoffMillis(today + day_ms - 1, 30),
+    );
+    try std.testing.expectEqual(
+        expected + day_ms,
+        retentionCutoffMillis(today + day_ms, 30),
+    );
 }

@@ -6,6 +6,7 @@ pub const Config = struct {
     database: [*:0]const u8 = "meioziz.db",
     apps: []App = &.{},
     admin_hash: []const u8,
+    retention: Retention = .{},
 
     pub fn deinit(self: *const Config, allocator: std.mem.Allocator) void {
         for (self.apps) |app| {
@@ -26,6 +27,10 @@ pub const Config = struct {
     }
 };
 
+pub const Retention = struct {
+    days: ?u32 = null,
+};
+
 pub const App = struct {
     name: []const u8,
     key: []const u8,
@@ -35,6 +40,7 @@ pub const App = struct {
 const FileConfig = struct {
     port: ?u16 = null,
     admin_hash: ?[]const u8 = null,
+    retention: Retention = .{},
     apps: ?[]const App = null,
     // didn't add FileApp on purpose, because it would have the same fields.
     // if some day there will be differencies, we'll introduce FileApp struct
@@ -67,8 +73,14 @@ fn parse(source: [:0]const u8, allocator: std.mem.Allocator) !Config {
     defer std.zon.parse.free(allocator, file_config);
 
     const admin_hash = file_config.admin_hash orelse return error.MissingAdminHash;
+
+    if (file_config.retention.days) |days| {
+        if (days == 0) return error.InvalidRetentionDays;
+    }
+
     var result: Config = .{
         .admin_hash = try allocator.dupe(u8, admin_hash),
+        .retention = file_config.retention,
     };
     errdefer allocator.free(result.admin_hash);
 
@@ -120,6 +132,40 @@ test "parse config default port" {
     defer parsed.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(u16, 8123), parsed.port);
+}
+
+test "parse config retention" {
+    const cases = .{
+        .{
+            .source = ".{ .admin_hash = \"\" }",
+            .expected = @as(?u32, null),
+        },
+        .{
+            .source = ".{ .admin_hash = \"\", .retention = .{} }",
+            .expected = @as(?u32, null),
+        },
+        .{
+            .source = ".{ .admin_hash = \"\", .retention = .{ .days = 30 } }",
+            .expected = @as(?u32, 30),
+        },
+    };
+
+    inline for (cases) |case| {
+        const parsed = try parse(case.source, std.testing.allocator);
+        defer parsed.deinit(std.testing.allocator);
+
+        try std.testing.expectEqual(case.expected, parsed.retention.days);
+    }
+}
+
+test "parse config rejects zero retention days" {
+    try std.testing.expectError(
+        error.InvalidRetentionDays,
+        parse(
+            ".{ .admin_hash = \"\", .retention = .{ .days = 0 } }",
+            std.testing.allocator,
+        ),
+    );
 }
 
 test "parse config app default active" {

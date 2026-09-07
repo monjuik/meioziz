@@ -90,6 +90,10 @@ Strings up to 128 symbols are supported.
 
     .admin_hash = "$2y$12$qBlpx4Y61WRU7bIrhSGdwOyJumNNH/fChk40axsUWbF0NsSTy8uI2",
 
+    .retention = .{
+        .days = 30,
+    },
+
     .apps = .{
         .{
             .name = "Pairception",
@@ -102,6 +106,9 @@ Strings up to 128 symbols are supported.
 
 To get a password hash use `htpasswd -bnBC 12 "" 'your-password' | cut -d: -f2`.
 `.admin_hash = ""` disables admin login/UI access, but `POST /v1/event` continues working.
+
+Optional `retention.days` tells the app to delete daily aggregates older than this number of days.
+Cleanup runs after successful scheduled aggregation.
 
 ## Deployment
 
