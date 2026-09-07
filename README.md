@@ -1,6 +1,6 @@
 # Meioziz
 
-Tiny privacy-first event stats for indie apps. Zig + SQLite. No user tracking.
+Tiny self-hosted privacy-first event stats for indie apps. Built-in SQLite storage. No user tracking.
 
 Your app sends events to the server, like "a game was finished with the score of 567" or "in-game shop was opened". Meioziz keeps them for a day and calculates daily aggregates. You see them for the previous 28 days.
 
@@ -11,7 +11,7 @@ It's very ecological:
 
 ## Why am I doing it?
 
-I don't like unknown SDK getting info about the user in my apps. But I would like to know if users are visiting the shop or finishing the game.
+I don't like unknown SDK getting info about the user in my apps. But I would like to get basic product analytics: are users visiting the shop or finishing the game.
 So I am building this tool for myself.
 
 ## What's in this name?
