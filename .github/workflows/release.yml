@@ -31,7 +31,7 @@ jobs:
           asset_name="meioziz-${{ github.ref_name }}-x86_64-linux-musl"
           mkdir -p "dist/${asset_name}"
           cp zig-out/bin/meioziz "dist/${asset_name}/"
-          cp README.md LICENSE "dist/${asset_name}/"
+          cp README.md LICENSE config.example.zon "dist/${asset_name}/"
           tar -C dist -czf "dist/${asset_name}.tar.gz" "${asset_name}"
 
       - name: Upload release asset
