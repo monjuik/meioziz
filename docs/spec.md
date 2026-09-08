@@ -57,6 +57,14 @@ GROUP BY code
 ORDER BY events_count DESC, code ASC;
 ```
 
+### DB backup
+
+Create a backup:
+`sqlite3 meioziz.db ".backup 'meioziz-backup-$(date +%Y%m%d-%H%M%S).db'"`
+
+Check file:
+`sqlite3 meioziz-*.db "PRAGMA integrity_check;"`
+
 ---
 
 ## Tests with ab
