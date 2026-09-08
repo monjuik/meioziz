@@ -468,10 +468,12 @@ fn verifySignedCookieValue(value: []const u8, admin_hash: []const u8, now_second
 }
 
 fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
-    var html: std.ArrayList(u8) = .empty;
-    errdefer html.deinit(allocator);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    errdefer output.deinit();
 
-    try html.appendSlice(allocator,
+    const html = &output.writer;
+
+    try html.writeAll(
         \\<!doctype html>
         \\<html lang="en">
         \\<head>
@@ -490,27 +492,27 @@ fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
         \\    <h2 class="h5 mb-3">Dashboard</h2>
     );
     if (apps.len == 0) {
-        try html.appendSlice(allocator,
+        try html.writeAll(
             \\    <p class="text-body-secondary mb-0">No active apps configured.</p>
             \\
         );
     } else {
-        try html.appendSlice(allocator,
+        try html.writeAll(
             \\    <div class="row g-3">
             \\
         );
 
         for (apps) |app| {
-            try renderAppCard(&html, allocator, app);
+            try renderAppCard(html, app);
         }
 
-        try html.appendSlice(allocator,
+        try html.writeAll(
             \\    </div>
             \\
         );
     }
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\  </main>
         \\  <footer class="border-top">
         \\    <div class="container py-3">
@@ -522,58 +524,57 @@ fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
         \\
     );
 
-    return try html.toOwnedSlice(allocator);
+    return output.toOwnedSlice();
 }
 
-fn appendEscapedHtml(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+fn appendEscapedHtml(html: *std.Io.Writer, value: []const u8) !void {
     for (value) |char| {
         switch (char) {
-            '&' => try html.appendSlice(allocator, "&amp;"),
-            '<' => try html.appendSlice(allocator, "&lt;"),
-            '>' => try html.appendSlice(allocator, "&gt;"),
-            '"' => try html.appendSlice(allocator, "&quot;"),
-            '\'' => try html.appendSlice(allocator, "&#39;"),
-            else => try html.append(allocator, char),
+            '&' => try html.writeAll("&amp;"),
+            '<' => try html.writeAll("&lt;"),
+            '>' => try html.writeAll("&gt;"),
+            '"' => try html.writeAll("&quot;"),
+            '\'' => try html.writeAll("&#39;"),
+            else => try html.writeByte(char),
         }
     }
 }
 
-fn appendJsString(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: []const u8) !void {
-    try html.append(allocator, '"');
+fn appendJsString(html: *std.Io.Writer, value: []const u8) !void {
+    try html.writeByte('"');
     for (value) |char| {
         switch (char) {
-            '\\' => try html.appendSlice(allocator, "\\\\"),
-            '"' => try html.appendSlice(allocator, "\\\""),
-            '\n' => try html.appendSlice(allocator, "\\n"),
-            '\r' => try html.appendSlice(allocator, "\\r"),
-            '\t' => try html.appendSlice(allocator, "\\t"),
-            else => try html.append(allocator, char),
+            '\\' => try html.writeAll("\\\\"),
+            '"' => try html.writeAll("\\\""),
+            '\n' => try html.writeAll("\\n"),
+            '\r' => try html.writeAll("\\r"),
+            '\t' => try html.writeAll("\\t"),
+            else => try html.writeByte(char),
         }
     }
-    try html.append(allocator, '"');
+    try html.writeByte('"');
 }
 
-fn renderAppCard(html: *std.ArrayList(u8), allocator: std.mem.Allocator, dashboard_app: DashboardApp) !void {
-    try html.appendSlice(allocator,
+fn renderAppCard(html: *std.Io.Writer, dashboard_app: DashboardApp) !void {
+    try html.writeAll(
         \\      <div class="col-12 col-md-6">
         \\        <a class="card text-decoration-none text-body h-100" href="/app/
     );
-    try appendEscapedHtml(html, allocator, dashboard_app.app.key);
-    try html.appendSlice(allocator,
+    try appendEscapedHtml(html, dashboard_app.app.key);
+    try html.writeAll(
         \\">
         \\          <div class="card-body">
         \\            <h3 class="h6 card-title mb-2">
     );
-    try appendEscapedHtml(html, allocator, dashboard_app.app.name);
-    try html.appendSlice(allocator,
+    try appendEscapedHtml(html, dashboard_app.app.name);
+    try html.writeAll(
         \\</h3>
         \\            <p class="card-text mb-0">
     );
 
-    const count_text = try std.fmt.allocPrint(allocator, "{d}", .{dashboard_app.count});
-    try html.appendSlice(allocator, count_text);
+    try html.print("{d}", .{dashboard_app.count});
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\ events today</p>
         \\          </div>
         \\        </a>
@@ -587,10 +588,12 @@ fn renderAppPage(
     app: *const config.App,
     aggregates: []const db.DailyAggregate,
 ) ![]u8 {
-    var html: std.ArrayList(u8) = .empty;
-    errdefer html.deinit(allocator);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    errdefer output.deinit();
 
-    try html.appendSlice(allocator,
+    const html = &output.writer;
+
+    try html.writeAll(
         \\<!doctype html>
         \\<html lang="en">
         \\<head>
@@ -598,8 +601,8 @@ fn renderAppPage(
         \\  <meta name="viewport" content="width=device-width, initial-scale=1">
         \\  <title>
     );
-    try appendEscapedHtml(&html, allocator, app.name);
-    try html.appendSlice(allocator,
+    try appendEscapedHtml(html, app.name);
+    try html.writeAll(
         \\ - Meioziz</title>
         \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
         \\  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
@@ -613,14 +616,14 @@ fn renderAppPage(
         \\  <main class="container py-4">
         \\    <h1 class="h4 mb-4">
     );
-    try appendEscapedHtml(&html, allocator, app.name);
-    try html.appendSlice(allocator,
+    try appendEscapedHtml(html, app.name);
+    try html.writeAll(
         \\</h1>
         \\
     );
 
     if (aggregates.len == 0) {
-        try html.appendSlice(allocator,
+        try html.writeAll(
             \\    <p class="text-body-secondary mb-0">No daily aggregates yet.</p>
             \\
         );
@@ -633,12 +636,12 @@ fn renderAppPage(
             while (i < aggregates.len and std.mem.eql(u8, aggregates[i].code, code)) {
                 i += 1;
             }
-            try renderEventCodeBlock(&html, allocator, group_index, code, aggregates[start..i]);
+            try renderEventCodeBlock(html, group_index, code, aggregates[start..i]);
             group_index += 1;
         }
     }
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\  </main>
         \\  <footer class="border-top">
         \\    <div class="container py-3">
@@ -650,30 +653,29 @@ fn renderAppPage(
         \\
     );
 
-    return try html.toOwnedSlice(allocator);
+    return output.toOwnedSlice();
 }
 
 fn renderEventCodeBlock(
-    html: *std.ArrayList(u8),
-    allocator: std.mem.Allocator,
+    html: *std.Io.Writer,
     group_index: usize,
     code: []const u8,
     rows: []const db.DailyAggregate,
 ) !void {
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\    <section class="mb-4">
         \\      <h2 class="h5 mb-3">
     );
-    try appendEscapedHtml(html, allocator, code);
-    try html.appendSlice(allocator,
+    try appendEscapedHtml(html, code);
+    try html.writeAll(
         \\</h2>
         \\      <div class="row g-3 align-items-start">
         \\        <div class="col-12 col-lg-5">
         \\          <div style="height: 320px;">
         \\            <canvas id="chart-
     );
-    try appendInt(html, allocator, @intCast(group_index));
-    try html.appendSlice(allocator,
+    try html.print("{d}", .{group_index});
+    try html.writeAll(
         \\"></canvas>
         \\          </div>
         \\        </div>
@@ -695,10 +697,10 @@ fn renderEventCodeBlock(
     );
 
     for (rows) |*row| {
-        try renderDailyAggregateRow(html, allocator, row);
+        try renderDailyAggregateRow(html, row);
     }
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\              </tbody>
         \\            </table>
         \\          </div>
@@ -707,8 +709,8 @@ fn renderEventCodeBlock(
         \\      <script>
         \\        new Chart(document.getElementById('chart-
     );
-    try appendInt(html, allocator, @intCast(group_index));
-    try html.appendSlice(allocator,
+    try html.print("{d}", .{group_index});
+    try html.writeAll(
         \\'), {
         \\          type: 'line',
         \\          data: {
@@ -718,30 +720,30 @@ fn renderEventCodeBlock(
     while (label_index > 0) {
         label_index -= 1;
         if (label_index != rows.len - 1) {
-            try html.appendSlice(allocator, ", ");
+            try html.writeAll(", ");
         }
-        try html.append(allocator, '\'');
-        try appendDay(html, allocator, rows[label_index].day);
-        try html.append(allocator, '\'');
+        try html.writeByte('\'');
+        try appendDay(html, rows[label_index].day);
+        try html.writeByte('\'');
     }
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\],
         \\            datasets: [
     );
 
-    try appendIntChartDataset(html, allocator, "Count", rows, .count, false);
-    try appendIntChartDataset(html, allocator, "Uniques", rows, .uniques, true);
-    try appendIntChartDataset(html, allocator, "Min", rows, .min, true);
-    try appendIntChartDataset(html, allocator, "Max", rows, .max, true);
-    try appendIntChartDataset(html, allocator, "Avg", rows, .avg, true);
+    try appendIntChartDataset(html, "Count", rows, .count, false);
+    try appendIntChartDataset(html, "Uniques", rows, .uniques, true);
+    try appendIntChartDataset(html, "Min", rows, .min, true);
+    try appendIntChartDataset(html, "Max", rows, .max, true);
+    try appendIntChartDataset(html, "Avg", rows, .avg, true);
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\]
         \\          },
         \\
     );
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\          options: {
         \\            responsive: true,
         \\            maintainAspectRatio: false,
@@ -765,23 +767,22 @@ const IntChartMetric = enum {
 };
 
 fn appendIntChartDataset(
-    html: *std.ArrayList(u8),
-    allocator: std.mem.Allocator,
+    html: *std.Io.Writer,
     label: []const u8,
     rows: []const db.DailyAggregate,
     metric: IntChartMetric,
     comma_prefix: bool,
 ) !void {
     if (comma_prefix) {
-        try html.appendSlice(allocator, ",");
+        try html.writeAll(",");
     }
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\{
         \\              label:
     );
-    try appendJsString(html, allocator, label);
-    try html.appendSlice(allocator,
+    try appendJsString(html, label);
+    try html.writeAll(
         \\,
         \\              data: [
     );
@@ -790,20 +791,20 @@ fn appendIntChartDataset(
     while (value_index > 0) {
         value_index -= 1;
         if (value_index != rows.len - 1) {
-            try html.appendSlice(allocator, ", ");
+            try html.writeAll(", ");
         }
 
         const row = &rows[value_index];
         switch (metric) {
-            .count => try appendInt(html, allocator, row.count),
-            .uniques => try appendNullableInt(html, allocator, row.uniques, "null"),
-            .min => try appendNullableInt(html, allocator, row.min, "null"),
-            .max => try appendNullableInt(html, allocator, row.max, "null"),
-            .avg => try appendNullableInt(html, allocator, row.avg, "null"),
+            .count => try html.print("{d}", .{row.count}),
+            .uniques => try appendNullableInt(html, row.uniques, "null"),
+            .min => try appendNullableInt(html, row.min, "null"),
+            .max => try appendNullableInt(html, row.max, "null"),
+            .avg => try appendNullableInt(html, row.avg, "null"),
         }
     }
 
-    try html.appendSlice(allocator,
+    try html.writeAll(
         \\],
         \\              cubicInterpolationMode: 'monotone',
         \\              tension: 0.4,
@@ -812,78 +813,63 @@ fn appendIntChartDataset(
     );
 }
 
-fn renderDailyAggregateRow(
-    html: *std.ArrayList(u8),
-    allocator: std.mem.Allocator,
-    row: *const db.DailyAggregate,
-) !void {
-    try html.appendSlice(allocator,
+fn renderDailyAggregateRow(html: *std.Io.Writer, row: *const db.DailyAggregate) !void {
+    try html.writeAll(
         \\            <tr>
         \\              <td>
     );
-    try appendDay(html, allocator, row.day);
-    try html.appendSlice(allocator,
+    try appendDay(html, row.day);
+    try html.writeAll(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendInt(html, allocator, row.count);
-    try html.appendSlice(allocator,
+    try html.print("{d}", .{row.count});
+
+    try html.writeAll(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.min, "-");
-    try html.appendSlice(allocator,
+    try appendNullableInt(html, row.min, "-");
+    try html.writeAll(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.max, "-");
-    try html.appendSlice(allocator,
+    try appendNullableInt(html, row.max, "-");
+    try html.writeAll(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.avg, "-");
-    try html.appendSlice(allocator,
+    try appendNullableInt(html, row.avg, "-");
+    try html.writeAll(
         \\</td>
         \\              <td class="text-end">
     );
-    try appendNullableInt(html, allocator, row.uniques, "-");
-    try html.appendSlice(allocator,
+    try appendNullableInt(html, row.uniques, "-");
+    try html.writeAll(
         \\</td>
         \\            </tr>
         \\
     );
 }
 
-fn appendInt(html: *std.ArrayList(u8), allocator: std.mem.Allocator, value: i64) !void {
-    const text = try std.fmt.allocPrint(allocator, "{d}", .{value});
-    try html.appendSlice(allocator, text);
-}
-
-fn appendNullableInt(
-    html: *std.ArrayList(u8),
-    allocator: std.mem.Allocator,
-    value: ?i64,
-    fallback: []const u8,
-) !void {
+fn appendNullableInt(html: *std.Io.Writer, value: ?i64, fallback: []const u8) !void {
     if (value) |actual| {
-        try appendInt(html, allocator, actual);
+        try html.print("{d}", .{actual});
     } else {
-        try html.appendSlice(allocator, fallback);
+        try html.writeAll(fallback);
     }
 }
 
-fn appendDay(html: *std.ArrayList(u8), allocator: std.mem.Allocator, day: i64) !void {
+fn appendDay(html: *std.Io.Writer, day: i64) !void {
     const days_since_epoch = @divFloor(day, db.day_ms);
     const epoch_day = std.time.epoch.EpochDay{ .day = @intCast(days_since_epoch) };
     const year_day = epoch_day.calculateYearDay();
     const month_day = year_day.calculateMonthDay();
 
-    const text = try std.fmt.allocPrint(
-        allocator,
+    try html.print(
         "{d:0>4}-{d:0>2}-{d:0>2}",
         .{ year_day.year, @intFromEnum(month_day.month), month_day.day_index + 1 },
     );
-    try html.appendSlice(allocator, text);
 }
 
 fn respondLoginForm(request: *std.http.Server.Request, status: std.http.Status) !void {
