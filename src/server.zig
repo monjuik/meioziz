@@ -76,20 +76,13 @@ pub const Server = struct {
     }
 
     fn handleRequest(self: *const Server, request: *std.http.Server.Request) !void {
-        const route = matchRoute(request.head.method, request.head.target) orelse {
-            try respondNotFound(request);
-            return;
-        };
+        const route = matchRoute(request.head.method, request.head.target) orelse return respondNotFound(request);
 
-        if (self.config.admin_hash.len == 0 and route.requiresAdmin()) {
-            try respondNotFound(request);
-            return;
-        }
+        if (self.config.admin_hash.len == 0 and route.requiresAdmin())
+            return respondNotFound(request);
 
-        if (route.requiresAdmin() and !self.isAuthorized(request)) {
-            try respondLoginForm(request, .unauthorized);
-            return;
-        }
+        if (route.requiresAdmin() and !self.isAuthorized(request))
+            return respondLoginForm(request, .unauthorized);
 
         var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
         defer request_arena.deinit();
@@ -106,37 +99,24 @@ pub const Server = struct {
     }
 
     fn handleEvent(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
-        const content_length = request.head.content_length orelse {
-            try respondBadRequest(request);
-            return;
-        };
+        const content_length = request.head.content_length orelse return respondBadRequest(request);
 
-        if (content_length > max_event_body_size) {
-            try respondBadRequest(request);
-            return;
-        }
+        if (content_length > max_event_body_size)
+            return respondBadRequest(request);
 
         var body_buffer: [4096]u8 = undefined;
         var body_reader = request.readerExpectNone(&body_buffer);
-        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
-            try respondBadRequest(request);
-            return;
-        };
+        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch return respondBadRequest(request);
 
-        const event_request = event.parse(allocator, body) catch {
-            try respondBadRequest(request);
-            return;
-        };
+        const event_request = event.parse(allocator, body) catch return respondBadRequest(request);
 
         const created_event = event.Event.init(self.config, &event_request) catch |err| {
             std.log.err("invalid event: {any}", .{err});
-            try respondBadRequest(request);
-            return;
+            return respondBadRequest(request);
         };
         self.db.insertEvent(&created_event) catch |err| {
             std.log.err("failed to insert event: {any}", .{err});
-            try respondInternalError(request);
-            return;
+            return respondInternalError(request);
         };
 
         try respondNoContent(request);
@@ -147,8 +127,7 @@ pub const Server = struct {
 
         const counts = self.db.countEventsByAppSince(allocator, since_ms) catch |err| {
             std.log.err("failed to load dashboard counts: {any}", .{err});
-            try respondInternalError(request);
-            return;
+            return respondInternalError(request);
         };
         var apps: std.ArrayList(DashboardApp) = .empty;
         for (self.config.apps) |*app| {
@@ -172,8 +151,7 @@ pub const Server = struct {
     fn handleCreateDaily(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const result = self.db.createDailyAggregates(allocator) catch |err| {
             std.log.err("failed to run daily aggregation: {any}", .{err});
-            try respondInternalError(request);
-            return;
+            return respondInternalError(request);
         };
 
         const body = try std.fmt.allocPrint(
@@ -186,20 +164,13 @@ pub const Server = struct {
     }
 
     fn handleApp(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
-        const app_key = appKeyFromPath(request.head.target) orelse {
-            try respondNotFound(request);
-            return;
-        };
+        const app_key = appKeyFromPath(request.head.target) orelse return respondNotFound(request);
 
-        const app = self.config.findApp(app_key) orelse {
-            try respondNotFound(request);
-            return;
-        };
+        const app = self.config.findApp(app_key) orelse return respondNotFound(request);
 
         const aggregates = self.db.dailyAggregatesByApp(allocator, app.key) catch |err| {
             std.log.err("failed to load daily aggregates: {any}", .{err});
-            try respondInternalError(request);
-            return;
+            return respondInternalError(request);
         };
 
         const html = try renderAppPage(allocator, app, aggregates);
@@ -209,44 +180,25 @@ pub const Server = struct {
     fn handleLogin(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const admin_hash = self.config.admin_hash;
 
-        const content_length = request.head.content_length orelse {
-            try respondBadRequest(request);
-            return;
-        };
+        const content_length = request.head.content_length orelse return respondBadRequest(request);
 
-        if (content_length > 4096) {
-            try respondBadRequest(request);
-            return;
-        }
+        if (content_length > 4096)
+            return respondBadRequest(request);
 
         var body_buffer: [4096]u8 = undefined;
         var body_reader = request.readerExpectNone(&body_buffer);
-        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch {
-            try respondBadRequest(request);
-            return;
-        };
+        const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch return respondBadRequest(request);
 
-        const username = (formValue(allocator, body, "username") catch {
-            try respondBadRequest(request);
-            return;
-        }) orelse "";
+        const username = (formValue(allocator, body, "username") catch return respondBadRequest(request)) orelse "";
 
-        const password = (formValue(allocator, body, "password") catch {
-            try respondBadRequest(request);
-            return;
-        }) orelse "";
+        const password = (formValue(allocator, body, "password") catch return respondBadRequest(request)) orelse "";
 
-        if (!std.mem.eql(u8, username, "admin") or !verifyPassword(admin_hash, password)) {
-            try respondLoginForm(request, .unauthorized);
-            return;
-        }
+        if (!std.mem.eql(u8, username, "admin") or !verifyPassword(admin_hash, password))
+            return respondLoginForm(request, .unauthorized);
 
         var cookie_value_buf: [128]u8 = undefined;
         const now_seconds = @divFloor(self.db.nowMillis(), 1000);
-        const cookie_value = writeSignedCookieValue(&cookie_value_buf, admin_hash, now_seconds) catch {
-            try respondInternalError(request);
-            return;
-        };
+        const cookie_value = writeSignedCookieValue(&cookie_value_buf, admin_hash, now_seconds) catch return respondInternalError(request);
 
         var set_cookie_buf: [256]u8 = undefined;
         const set_cookie = try std.fmt.bufPrint(
