@@ -91,21 +91,21 @@ pub const Server = struct {
             return;
         }
 
-        switch (route) {
-            .event => try self.handleEvent(request),
-            .login => try self.handleLogin(request),
-            .index => try self.handleIndex(request),
-            .app => try self.handleApp(request),
-            .createDaily => try self.handleCreateDaily(request),
-        }
-    }
-
-    fn handleEvent(self: *const Server, request: *std.http.Server.Request) !void {
         var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
         defer request_arena.deinit();
 
         const allocator = request_arena.allocator();
 
+        switch (route) {
+            .event => try self.handleEvent(request, allocator),
+            .login => try self.handleLogin(request, allocator),
+            .index => try self.handleIndex(request, allocator),
+            .app => try self.handleApp(request, allocator),
+            .createDaily => try self.handleCreateDaily(request, allocator),
+        }
+    }
+
+    fn handleEvent(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const content_length = request.head.content_length orelse {
             try respondBadRequest(request);
             return;
@@ -142,13 +142,9 @@ pub const Server = struct {
         try respondNoContent(request);
     }
 
-    fn handleIndex(self: *const Server, request: *std.http.Server.Request) !void {
+    fn handleIndex(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const since_ms = startOfDayMillis(self.db.nowMillis());
 
-        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
-        defer request_arena.deinit();
-
-        const allocator = request_arena.allocator();
         const counts = self.db.countEventsByAppSince(allocator, since_ms) catch |err| {
             std.log.err("failed to load dashboard counts: {any}", .{err});
             try respondInternalError(request);
@@ -173,12 +169,7 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
-    fn handleCreateDaily(self: *const Server, request: *std.http.Server.Request) !void {
-        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
-        defer request_arena.deinit();
-
-        const allocator = request_arena.allocator();
-
+    fn handleCreateDaily(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const result = self.db.createDailyAggregates(allocator) catch |err| {
             std.log.err("failed to run daily aggregation: {any}", .{err});
             try respondInternalError(request);
@@ -194,7 +185,7 @@ pub const Server = struct {
         try respondText(request, body, .ok);
     }
 
-    fn handleApp(self: *const Server, request: *std.http.Server.Request) !void {
+    fn handleApp(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const app_key = appKeyFromPath(request.head.target) orelse {
             try respondNotFound(request);
             return;
@@ -204,11 +195,6 @@ pub const Server = struct {
             try respondNotFound(request);
             return;
         };
-
-        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
-        defer request_arena.deinit();
-
-        const allocator = request_arena.allocator();
 
         const aggregates = self.db.dailyAggregatesByApp(allocator, app.key) catch |err| {
             std.log.err("failed to load daily aggregates: {any}", .{err});
@@ -220,7 +206,7 @@ pub const Server = struct {
         try respondHtml(request, html, .ok);
     }
 
-    fn handleLogin(self: *const Server, request: *std.http.Server.Request) !void {
+    fn handleLogin(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
         const admin_hash = self.config.admin_hash;
 
         const content_length = request.head.content_length orelse {
@@ -232,11 +218,6 @@ pub const Server = struct {
             try respondBadRequest(request);
             return;
         }
-
-        var request_arena = std.heap.ArenaAllocator.init(std.heap.smp_allocator);
-        defer request_arena.deinit();
-
-        const allocator = request_arena.allocator();
 
         var body_buffer: [4096]u8 = undefined;
         var body_reader = request.readerExpectNone(&body_buffer);
