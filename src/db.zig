@@ -19,25 +19,10 @@ const Migration = struct {
     sql: [:0]const u8,
 };
 
-pub const AppEventCount = struct {
-    app_key: []const u8,
-    count: i64,
-};
-
 pub const AggregateResult = struct {
     days: i64 = 0,
     events_deleted: i64 = 0,
     elapsed_ms: i64 = 0,
-};
-
-pub const DailyAggregate = struct {
-    day: i64,
-    code: []const u8,
-    count: i64,
-    uniques: ?i64,
-    min: ?i64,
-    max: ?i64,
-    avg: ?i64,
 };
 
 pub const Database = struct {
@@ -109,11 +94,11 @@ pub const Database = struct {
         self: *Database,
         allocator: std.mem.Allocator,
         since_ms: i64,
-    ) ![]AppEventCount {
+    ) ![]event.AppRow {
         self.mutex.lockUncancelable(self.io);
         defer self.mutex.unlock(self.io);
 
-        var result: std.ArrayList(AppEventCount) = .empty;
+        var result: std.ArrayList(event.AppRow) = .empty;
         errdefer result.deinit(allocator);
 
         var rows = try self.conn.rows(
@@ -135,15 +120,16 @@ pub const Database = struct {
         return try result.toOwnedSlice(allocator);
     }
 
+    /// Returns aggregates ordered by code ascending, then day descending.
     pub fn dailyAggregatesByApp(
         self: *Database,
         allocator: std.mem.Allocator,
         app_key: []const u8,
-    ) ![]DailyAggregate {
+    ) ![]event.DailyAggregate {
         self.mutex.lockUncancelable(self.io);
         defer self.mutex.unlock(self.io);
 
-        var result: std.ArrayList(DailyAggregate) = .empty;
+        var result: std.ArrayList(event.DailyAggregate) = .empty;
         errdefer {
             for (result.items) |item| {
                 allocator.free(item.code);

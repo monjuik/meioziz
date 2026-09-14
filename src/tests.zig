@@ -1,6 +1,7 @@
 test {
     _ = @import("config.zig");
     _ = @import("server.zig");
+    _ = @import("html.zig");
     _ = @import("event.zig");
     _ = @import("db.zig");
     _ = @import("main.zig");

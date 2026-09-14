@@ -7,6 +7,7 @@ const Config = config.Config;
 const db = @import("db.zig");
 const Database = db.Database;
 const event = @import("event.zig");
+const html = @import("html.zig");
 
 const Route = enum {
     index,
@@ -21,11 +22,6 @@ const Route = enum {
             .event, .login => false,
         };
     }
-};
-
-const DashboardApp = struct {
-    app: *const config.App,
-    count: i64,
 };
 
 const text_plain_headers = [_]std.http.Header{
@@ -129,23 +125,9 @@ pub const Server = struct {
             std.log.err("failed to load dashboard counts: {any}", .{err});
             return respondInternalError(request);
         };
-        var apps: std.ArrayList(DashboardApp) = .empty;
-        for (self.config.apps) |*app| {
-            if (!app.active) continue;
-
-            try apps.append(allocator, .{
-                .app = app,
-                .count = findEventCount(counts, app.key),
-            });
-        }
-        std.mem.sort(
-            DashboardApp,
-            apps.items,
-            {},
-            lessThanDashboardApp,
-        );
-        const html = try renderPage(allocator, apps.items);
-        try respondHtml(request, html, .ok);
+        const rows = try prepareAppRows(allocator, self.config, counts);
+        const body = try html.renderIndex(allocator, rows);
+        try respondHtml(request, body, .ok);
     }
 
     fn handleCreateDaily(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
@@ -173,8 +155,8 @@ pub const Server = struct {
             return respondInternalError(request);
         };
 
-        const html = try renderAppPage(allocator, app, aggregates);
-        try respondHtml(request, html, .ok);
+        const body = try html.renderApp(allocator, app, aggregates);
+        try respondHtml(request, body, .ok);
     }
 
     fn handleLogin(self: *const Server, request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
@@ -190,7 +172,6 @@ pub const Server = struct {
         const body = body_reader.readAlloc(allocator, @intCast(content_length)) catch return respondBadRequest(request);
 
         const username = (formValue(allocator, body, "username") catch return respondBadRequest(request)) orelse "";
-
         const password = (formValue(allocator, body, "password") catch return respondBadRequest(request)) orelse "";
 
         if (!std.mem.eql(u8, username, "admin") or !verifyPassword(admin_hash, password))
@@ -400,439 +381,8 @@ fn verifySignedCookieValue(value: []const u8, admin_hash: []const u8, now_second
     return std.mem.eql(u8, &expected_mac, &actual_mac);
 }
 
-fn renderPage(allocator: std.mem.Allocator, apps: []const DashboardApp) ![]u8 {
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    errdefer output.deinit();
-
-    const html = &output.writer;
-
-    try html.writeAll(
-        \\<!doctype html>
-        \\<html lang="en">
-        \\<head>
-        \\  <meta charset="utf-8">
-        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
-        \\  <title>Meioziz</title>
-        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-        \\</head>
-        \\<body>
-        \\  <header class="border-bottom">
-        \\    <div class="container py-3">
-        \\      <h1 class="h4 mb-0">Meioziz</h1>
-        \\    </div>
-        \\  </header>
-        \\  <main class="container py-4">
-        \\    <h2 class="h5 mb-3">Dashboard</h2>
-    );
-    if (apps.len == 0) {
-        try html.writeAll(
-            \\    <p class="text-body-secondary mb-0">No active apps configured.</p>
-            \\
-        );
-    } else {
-        try html.writeAll(
-            \\    <div class="row g-3">
-            \\
-        );
-
-        for (apps) |app| {
-            try renderAppCard(html, app);
-        }
-
-        try html.writeAll(
-            \\    </div>
-            \\
-        );
-    }
-
-    try html.writeAll(
-        \\  </main>
-        \\  <footer class="border-top">
-        \\    <div class="container py-3">
-        \\      <a href="https://github.com/monjuik/meioziz">GitHub</a>
-        \\    </div>
-        \\  </footer>
-        \\</body>
-        \\</html>
-        \\
-    );
-
-    return output.toOwnedSlice();
-}
-
-fn appendEscapedHtml(html: *std.Io.Writer, value: []const u8) !void {
-    for (value) |char| {
-        switch (char) {
-            '&' => try html.writeAll("&amp;"),
-            '<' => try html.writeAll("&lt;"),
-            '>' => try html.writeAll("&gt;"),
-            '"' => try html.writeAll("&quot;"),
-            '\'' => try html.writeAll("&#39;"),
-            else => try html.writeByte(char),
-        }
-    }
-}
-
-fn appendJsString(html: *std.Io.Writer, value: []const u8) !void {
-    try html.writeByte('"');
-    for (value) |char| {
-        switch (char) {
-            '\\' => try html.writeAll("\\\\"),
-            '"' => try html.writeAll("\\\""),
-            '\n' => try html.writeAll("\\n"),
-            '\r' => try html.writeAll("\\r"),
-            '\t' => try html.writeAll("\\t"),
-            else => try html.writeByte(char),
-        }
-    }
-    try html.writeByte('"');
-}
-
-fn renderAppCard(html: *std.Io.Writer, dashboard_app: DashboardApp) !void {
-    try html.writeAll(
-        \\      <div class="col-12 col-md-6">
-        \\        <a class="card text-decoration-none text-body h-100" href="/app/
-    );
-    try appendEscapedHtml(html, dashboard_app.app.key);
-    try html.writeAll(
-        \\">
-        \\          <div class="card-body">
-        \\            <h3 class="h6 card-title mb-2">
-    );
-    try appendEscapedHtml(html, dashboard_app.app.name);
-    try html.writeAll(
-        \\</h3>
-        \\            <p class="card-text mb-0">
-    );
-
-    try html.print("{d}", .{dashboard_app.count});
-
-    try html.writeAll(
-        \\ events today</p>
-        \\          </div>
-        \\        </a>
-        \\      </div>
-        \\
-    );
-}
-
-fn renderAppPage(
-    allocator: std.mem.Allocator,
-    app: *const config.App,
-    aggregates: []const db.DailyAggregate,
-) ![]u8 {
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    errdefer output.deinit();
-
-    const html = &output.writer;
-
-    try html.writeAll(
-        \\<!doctype html>
-        \\<html lang="en">
-        \\<head>
-        \\  <meta charset="utf-8">
-        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
-        \\  <title>
-    );
-    try appendEscapedHtml(html, app.name);
-    try html.writeAll(
-        \\ - Meioziz</title>
-        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-        \\  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
-        \\</head>
-        \\<body>
-        \\  <header class="border-bottom">
-        \\    <div class="container py-3">
-        \\      <a href="/" class="text-decoration-none">Meioziz</a>
-        \\    </div>
-        \\  </header>
-        \\  <main class="container py-4">
-        \\    <h1 class="h4 mb-4">
-    );
-    try appendEscapedHtml(html, app.name);
-    try html.writeAll(
-        \\</h1>
-        \\
-    );
-
-    if (aggregates.len == 0) {
-        try html.writeAll(
-            \\    <p class="text-body-secondary mb-0">No daily aggregates yet.</p>
-            \\
-        );
-    } else {
-        var i: usize = 0;
-        var group_index: usize = 0;
-        while (i < aggregates.len) {
-            const code = aggregates[i].code;
-            const start = i;
-            while (i < aggregates.len and std.mem.eql(u8, aggregates[i].code, code)) {
-                i += 1;
-            }
-            try renderEventCodeBlock(html, group_index, code, aggregates[start..i]);
-            group_index += 1;
-        }
-    }
-
-    try html.writeAll(
-        \\  </main>
-        \\  <footer class="border-top">
-        \\    <div class="container py-3">
-        \\      <a href="https://github.com/monjuik/meioziz">GitHub</a>
-        \\    </div>
-        \\  </footer>
-        \\</body>
-        \\</html>
-        \\
-    );
-
-    return output.toOwnedSlice();
-}
-
-fn renderEventCodeBlock(
-    html: *std.Io.Writer,
-    group_index: usize,
-    code: []const u8,
-    rows: []const db.DailyAggregate,
-) !void {
-    try html.writeAll(
-        \\    <section class="mb-4">
-        \\      <h2 class="h5 mb-3">
-    );
-    try appendEscapedHtml(html, code);
-    try html.writeAll(
-        \\</h2>
-        \\      <div class="row g-3 align-items-start">
-        \\        <div class="col-12 col-lg-5">
-        \\          <div style="height: 320px;">
-        \\            <canvas id="chart-
-    );
-    try html.print("{d}", .{group_index});
-    try html.writeAll(
-        \\"></canvas>
-        \\          </div>
-        \\        </div>
-        \\        <div class="col-12 col-lg-7">
-        \\          <div class="table-responsive">
-        \\            <table class="table table-sm align-middle">
-        \\              <thead>
-        \\                <tr>
-        \\                  <th scope="col">Day</th>
-        \\                  <th scope="col" class="text-end">Count</th>
-        \\                  <th scope="col" class="text-end">Min</th>
-        \\                  <th scope="col" class="text-end">Max</th>
-        \\                  <th scope="col" class="text-end">Avg</th>
-        \\                  <th scope="col" class="text-end">Uniques</th>
-        \\                </tr>
-        \\              </thead>
-        \\              <tbody>
-        \\
-    );
-
-    for (rows) |*row| {
-        try renderDailyAggregateRow(html, row);
-    }
-
-    try html.writeAll(
-        \\              </tbody>
-        \\            </table>
-        \\          </div>
-        \\        </div>
-        \\      </div>
-        \\      <script>
-        \\        new Chart(document.getElementById('chart-
-    );
-    try html.print("{d}", .{group_index});
-    try html.writeAll(
-        \\'), {
-        \\          type: 'line',
-        \\          data: {
-        \\            labels: [
-    );
-    var label_index: usize = rows.len;
-    while (label_index > 0) {
-        label_index -= 1;
-        if (label_index != rows.len - 1) {
-            try html.writeAll(", ");
-        }
-        try html.writeByte('\'');
-        try appendDay(html, rows[label_index].day);
-        try html.writeByte('\'');
-    }
-    try html.writeAll(
-        \\],
-        \\            datasets: [
-    );
-
-    try appendIntChartDataset(html, "Count", rows, .count, false);
-    try appendIntChartDataset(html, "Uniques", rows, .uniques, true);
-    try appendIntChartDataset(html, "Min", rows, .min, true);
-    try appendIntChartDataset(html, "Max", rows, .max, true);
-    try appendIntChartDataset(html, "Avg", rows, .avg, true);
-
-    try html.writeAll(
-        \\]
-        \\          },
-        \\
-    );
-
-    try html.writeAll(
-        \\          options: {
-        \\            responsive: true,
-        \\            maintainAspectRatio: false,
-        \\            interaction: {
-        \\              intersect: false
-        \\            }
-        \\          }
-        \\        });
-        \\      </script>
-        \\    </section>
-        \\
-    );
-}
-
-const IntChartMetric = enum {
-    count,
-    uniques,
-    min,
-    max,
-    avg,
-};
-
-fn appendIntChartDataset(
-    html: *std.Io.Writer,
-    label: []const u8,
-    rows: []const db.DailyAggregate,
-    metric: IntChartMetric,
-    comma_prefix: bool,
-) !void {
-    if (comma_prefix) {
-        try html.writeAll(",");
-    }
-
-    try html.writeAll(
-        \\{
-        \\              label:
-    );
-    try appendJsString(html, label);
-    try html.writeAll(
-        \\,
-        \\              data: [
-    );
-
-    var value_index: usize = rows.len;
-    while (value_index > 0) {
-        value_index -= 1;
-        if (value_index != rows.len - 1) {
-            try html.writeAll(", ");
-        }
-
-        const row = &rows[value_index];
-        switch (metric) {
-            .count => try html.print("{d}", .{row.count}),
-            .uniques => try appendNullableInt(html, row.uniques, "null"),
-            .min => try appendNullableInt(html, row.min, "null"),
-            .max => try appendNullableInt(html, row.max, "null"),
-            .avg => try appendNullableInt(html, row.avg, "null"),
-        }
-    }
-
-    try html.writeAll(
-        \\],
-        \\              cubicInterpolationMode: 'monotone',
-        \\              tension: 0.4,
-        \\              fill: false
-        \\            }
-    );
-}
-
-fn renderDailyAggregateRow(html: *std.Io.Writer, row: *const db.DailyAggregate) !void {
-    try html.writeAll(
-        \\            <tr>
-        \\              <td>
-    );
-    try appendDay(html, row.day);
-    try html.writeAll(
-        \\</td>
-        \\              <td class="text-end">
-    );
-    try html.print("{d}", .{row.count});
-
-    try html.writeAll(
-        \\</td>
-        \\              <td class="text-end">
-    );
-    try appendNullableInt(html, row.min, "-");
-    try html.writeAll(
-        \\</td>
-        \\              <td class="text-end">
-    );
-    try appendNullableInt(html, row.max, "-");
-    try html.writeAll(
-        \\</td>
-        \\              <td class="text-end">
-    );
-    try appendNullableInt(html, row.avg, "-");
-    try html.writeAll(
-        \\</td>
-        \\              <td class="text-end">
-    );
-    try appendNullableInt(html, row.uniques, "-");
-    try html.writeAll(
-        \\</td>
-        \\            </tr>
-        \\
-    );
-}
-
-fn appendNullableInt(html: *std.Io.Writer, value: ?i64, fallback: []const u8) !void {
-    if (value) |actual| {
-        try html.print("{d}", .{actual});
-    } else {
-        try html.writeAll(fallback);
-    }
-}
-
-fn appendDay(html: *std.Io.Writer, day: i64) !void {
-    const days_since_epoch = @divFloor(day, db.day_ms);
-    const epoch_day = std.time.epoch.EpochDay{ .day = @intCast(days_since_epoch) };
-    const year_day = epoch_day.calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
-
-    try html.print(
-        "{d:0>4}-{d:0>2}-{d:0>2}",
-        .{ year_day.year, @intFromEnum(month_day.month), month_day.day_index + 1 },
-    );
-}
-
 fn respondLoginForm(request: *std.http.Server.Request, status: std.http.Status) !void {
-    try respondHtml(request,
-        \\<!doctype html>
-        \\<html lang="en">
-        \\<head>
-        \\  <meta charset="utf-8">
-        \\  <meta name="viewport" content="width=device-width, initial-scale=1">
-        \\  <title>Login - Meioziz</title>
-        \\  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-        \\</head>
-        \\<body>
-        \\  <main class="container py-5" style="max-width: 28rem">
-        \\    <h1 class="h3 mb-4">Login</h1>
-        \\    <form method="post" action="/login">
-        \\      <div class="mb-3">
-        \\        <label class="form-label" for="username">Username</label>
-        \\        <input class="form-control" id="username" name="username" autocomplete="username" autofocus>
-        \\      </div>
-        \\      <div class="mb-3">
-        \\        <label class="form-label" for="password">Password</label>
-        \\        <input class="form-control" id="password" name="password" type="password" autocomplete="current-password">
-        \\      </div>
-        \\      <button class="btn btn-primary" type="submit">Login</button>
-        \\    </form>
-        \\  </main>
-        \\</body>
-        \\</html>
-    , status);
+    try respondHtml(request, html.renderLogin(), status);
 }
 
 fn headerValue(request: *const std.http.Server.Request, name: []const u8) ?[]const u8 {
@@ -865,7 +415,7 @@ fn startOfDayMillis(now_ms: i64) i64 {
     return @divFloor(now_ms, db.day_ms) * db.day_ms;
 }
 
-fn findEventCount(counts: []const db.AppEventCount, app_key: []const u8) i64 {
+fn findEventCount(counts: []const event.AppRow, app_key: []const u8) i64 {
     for (counts) |*count| {
         if (std.mem.eql(u8, count.app_key, app_key)) {
             return count.count;
@@ -874,8 +424,23 @@ fn findEventCount(counts: []const db.AppEventCount, app_key: []const u8) i64 {
     return 0;
 }
 
-fn lessThanDashboardApp(_: void, left: DashboardApp, right: DashboardApp) bool {
-    return std.mem.lessThan(u8, left.app.name, right.app.name);
+fn prepareAppRows(allocator: std.mem.Allocator, cfg: *const Config, counts: []const event.AppRow) ![]event.AppRow {
+    var rows: std.ArrayList(event.AppRow) = .empty;
+    errdefer rows.deinit(allocator);
+    for (cfg.apps) |app| {
+        if (!app.active) continue;
+        try rows.append(allocator, .{
+            .app_key = app.key,
+            .count = findEventCount(counts, app.key),
+            .name = app.name,
+        });
+    }
+    std.mem.sort(event.AppRow, rows.items, {}, lessThanAppRow);
+    return rows.toOwnedSlice(allocator);
+}
+
+fn lessThanAppRow(_: void, left: event.AppRow, right: event.AppRow) bool {
+    return std.mem.lessThan(u8, left.name, right.name);
 }
 
 test "match allowed routes" {
@@ -998,4 +563,53 @@ fn fuzzFormUrlDecoding(_: void, smith: *std.testing.Smith) !void {
     defer std.testing.allocator.free(decoded);
 
     try std.testing.expect(decoded.len <= input.len);
+}
+
+test "prepare dashboard rows from active apps with counts sorted by name" {
+    var apps = [_]config.App{
+        .{ .key = "first-key", .name = "Zulu" },
+        .{ .key = "last-key", .name = "Alpha" },
+        .{ .key = "disabled", .name = "Disabled", .active = false },
+    };
+    const cfg: Config = .{ .apps = &apps, .admin_hash = "" };
+    const counts = [_]event.AppRow{
+        .{ .app_key = "first-key", .count = 7 },
+        .{ .app_key = "disabled", .count = 9 },
+        .{ .app_key = "removed", .count = 11 },
+    };
+    const rows = try prepareAppRows(std.testing.allocator, &cfg, &counts);
+    defer std.testing.allocator.free(rows);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqualStrings("last-key", rows[0].app_key);
+    try std.testing.expectEqual(@as(i64, 0), rows[0].count);
+    try std.testing.expectEqualStrings("first-key", rows[1].app_key);
+    try std.testing.expectEqual(@as(i64, 7), rows[1].count);
+
+    const empty_cfg: Config = .{ .admin_hash = "" };
+    const empty_rows = try prepareAppRows(std.testing.allocator, &empty_cfg, &counts);
+    defer std.testing.allocator.free(empty_rows);
+    try std.testing.expectEqual(@as(usize, 0), empty_rows.len);
+}
+
+test "dashboard preserves selected app names with duplicate keys" {
+    var apps = [_]config.App{
+        .{ .key = "shared", .name = "Old", .active = false },
+        .{ .key = "shared", .name = "New" },
+        .{ .key = "shared", .name = "Another" },
+    };
+    const cfg: Config = .{ .apps = &apps, .admin_hash = "" };
+    const counts = [_]event.AppRow{.{ .app_key = "shared", .count = 7 }};
+    const rows = try prepareAppRows(std.testing.allocator, &cfg, &counts);
+    defer std.testing.allocator.free(rows);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqualStrings("Another", rows[0].name);
+    try std.testing.expectEqualStrings("New", rows[1].name);
+    for (rows) |row| {
+        try std.testing.expectEqualStrings("shared", row.app_key);
+        try std.testing.expectEqual(@as(i64, 7), row.count);
+    }
+    const body = try html.renderIndex(std.testing.allocator, rows);
+    defer std.testing.allocator.free(body);
+    try std.testing.expect(std.mem.indexOf(u8, body, "Old") == null);
+    try std.testing.expect(std.mem.indexOf(u8, body, "Another").? < std.mem.indexOf(u8, body, "New").?);
 }

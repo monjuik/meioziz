@@ -12,6 +12,25 @@ pub const EventRequest = struct {
     installId: ?[]const u8 = null,
 };
 
+// An app repsentation for the dashboard
+pub const AppRow = struct {
+    app_key: []const u8,
+    count: i64,
+    /// Left empty by database queries; the server supplies the configured name before rendering.
+    name: []const u8 = "",
+};
+
+// A piece of data for the table and chart
+pub const DailyAggregate = struct {
+    day: i64,
+    code: []const u8,
+    count: i64,
+    uniques: ?i64,
+    min: ?i64,
+    max: ?i64,
+    avg: ?i64,
+};
+
 pub const Event = struct {
     app: *const config.App,
     code: []const u8,
