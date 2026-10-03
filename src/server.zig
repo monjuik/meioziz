@@ -62,8 +62,8 @@ pub const Server = struct {
         var read_buffer: [64 * 1024]u8 = undefined;
         var write_buffer: [4096]u8 = undefined;
 
-        var stream_reader = std.Io.net.Stream.Reader.init(connection, self.io, &read_buffer);
-        var stream_writer = std.Io.net.Stream.Writer.init(connection, self.io, &write_buffer);
+        var stream_reader = connection.reader(self.io, &read_buffer);
+        var stream_writer = connection.writer(self.io, &write_buffer);
 
         var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
 
