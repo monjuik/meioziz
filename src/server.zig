@@ -67,7 +67,10 @@ pub const Server = struct {
 
         var http_server = std.http.Server.init(&stream_reader.interface, &stream_writer.interface);
 
-        var request = try http_server.receiveHead();
+        var request = http_server.receiveHead() catch |err| switch (err) {
+            error.HttpConnectionClosing => return,
+            else => return err,
+        };
         try self.handleRequest(&request);
     }
 
