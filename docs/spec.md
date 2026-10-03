@@ -79,6 +79,15 @@ ab -n 100000 -c 8 -p event.json -T application/json http://127.0.0.1:9000/v1/eve
 
 ## Fuzz testing
 
+This should work, but is not working for me, when I use sequental launches:
+
 ```bash
 zig build -j1 test -Doptimize=safe --fuzz=100K
+```
+
+So I use a separate cache for each run:
+
+```bash
+fuzz_cache=$(mktemp -d /tmp/meioziz-fuzz.XXXXXX)
+ZIG_LOCAL_CACHE_DIR="$fuzz_cache" zig build -j1 test -Doptimize=safe --fuzz=300M
 ```

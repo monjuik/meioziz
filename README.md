@@ -7,16 +7,15 @@ Your app sends events to the server, like "a game was finished with the score of
 It's very ecological:
 - self-efficient binary (though, Bootstrap and chart.js are loaded via CDN),
 - about 3MB MB RAM with 10k daily events (as SQLite keeps some indexes and cache in memory) on Linux, 
-- less than 1ms for the REST API responses.
+- less than 1ms for the REST API responses (on my mac. ~2.6 ms on a 2 vCPU / 4 GB RAM shared server).
 
 ## Why am I doing it?
 
-I don't like unknown SDK getting info about the user in my apps. But I would like to get basic product analytics: are users visiting the shop or finishing the game.
-So I am building this tool for myself.
+I don't like unknown SDK getting info about the user in my apps. But I would like to get basic product analytics, so I am building this tool for myself.
 
 ## What's in this name?
 
-This app is very tiny, the events are tiny – as amoeba's poke. Meiosis is a their reproduction.
+This app is very tiny, the events are small – as amoeba's poke. Meiosis is a their reproduction.
 
 ## Binaries
 
