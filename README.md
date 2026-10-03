@@ -20,7 +20,7 @@ This app is very tiny, the events are tiny – as amoeba's poke. Meiosis is a th
 
 ## Binaries
 
-Prebuilt binaries are provided for Linux x86_64, other platforms can build from source with Zig 0.16.0.
+Prebuilt binaries are provided for Linux x86_64, other platforms can build from source with Zig 0.17.0.
 
 ## How to use
 
@@ -32,10 +32,10 @@ Prebuilt binaries are provided for Linux x86_64, other platforms can build from 
 
 ## How to build
 
-`zig build -Doptimize=ReleaseSafe`
+`zig build -Doptimize=safe`
 
-  - Linux amd64: `zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe`
-  - macOS Apple Silicon: `zig build -Dtarget=aarch64-macos -Doptimize=ReleaseSafe`
+  - Linux amd64: `zig build -Dtarget=x86_64-linux-musl -Doptimize=safe`
+  - macOS Apple Silicon: `zig build -Dtarget=aarch64-macos -Doptimize=safe`
 
   ---
 

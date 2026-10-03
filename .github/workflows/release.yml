@@ -18,13 +18,13 @@ jobs:
 
       - uses: mlugg/setup-zig@v2.2.1
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Test
         run: zig build test
 
       - name: Build
-        run: zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSafe
+        run: zig build -Dtarget=x86_64-linux-musl -Doptimize=safe
 
       - name: Package
         run: |

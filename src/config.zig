@@ -63,14 +63,20 @@ pub fn load(io: std.Io, allocator: std.mem.Allocator) !Config {
 }
 
 fn parse(source: [:0]const u8, allocator: std.mem.Allocator) !Config {
-    const file_config = try std.zon.parse.fromSliceAlloc(
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var diagnostics: std.zon.parse.Diagnostics = undefined;
+
+    const file_config = try std.zon.parse.fromSlice(
         FileConfig,
-        allocator,
-        source,
-        null,
-        .{},
+        .{
+            .gpa = allocator,
+            .arena = arena.allocator(),
+            .source = source,
+            .diagnostics = &diagnostics,
+        },
     );
-    defer std.zon.parse.free(allocator, file_config);
 
     const admin_hash = file_config.admin_hash orelse return error.MissingAdminHash;
 

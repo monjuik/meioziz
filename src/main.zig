@@ -14,11 +14,11 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer if (builtin.mode == .Debug) {
+    defer if (builtin.mode == .debug) {
         _ = debug_allocator.deinit();
     };
 
-    const allocator = if (builtin.mode == .Debug)
+    const allocator = if (builtin.mode == .debug)
         debug_allocator.allocator()
     else
         std.heap.smp_allocator;

@@ -1,10 +1,12 @@
 .{
     .name = .meioziz,
     .version = "1.1.0-dev",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zqlite = .{
-            .url = "git+https://github.com/karlseguin/zqlite.zig?ref=master#5ac4cabe95a6d7faa7baf0da8057a8e6e8a227a1",
-            .hash = "zqlite-0.0.1-RWLaY64xnAAxsD2YNT8QqPMJUuaFv2GOzFRR4aGypJv3",
+            // Zig 0.17 compatibility fix; upstream PR #48.
+            .url = "git+https://github.com/monjuik/zqlite.zig#8c836ca10cd079598ca423fec03bce204ae9bd00",
+            .hash = "zqlite-0.0.1-RWLaY64xnAAbugDUq0-_lBo2YdeSqfUgWQzFKqQex9mo",
         },
     },
     .paths = .{""},

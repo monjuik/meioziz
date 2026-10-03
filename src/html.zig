@@ -411,7 +411,7 @@ fn appendDay(html: *std.Io.Writer, day: i64) !void {
 
     try html.print(
         "{d:0>4}-{d:0>2}-{d:0>2}",
-        .{ year_day.year, @intFromEnum(month_day.month), month_day.day_index + 1 },
+        .{ year_day.year, @backingInt(month_day.month), month_day.day_index + 1 },
     );
 }
 
