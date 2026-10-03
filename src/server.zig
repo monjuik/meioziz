@@ -208,7 +208,7 @@ pub const Server = struct {
 
     pub fn listen(self: *const Server) !std.Io.net.Server {
         std.log.info("Server started, receiving requests on {s}:{d}", .{ self.config.host, self.config.port });
-        return try self.addr.listen(self.io, .{ .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
+        return try self.addr.listen(self.io, .{ .reuse_address = true, .mode = Socket.Mode.stream, .protocol = Protocol.tcp });
     }
 };
 
