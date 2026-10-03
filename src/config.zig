@@ -248,3 +248,24 @@ test "parse config admin hash" {
         parsed.admin_hash,
     );
 }
+
+test "parse config frees memory on allocation failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        struct {
+            fn run(allocator: std.mem.Allocator) !void {
+                const parsed = try parse(
+                    \\.{
+                    \\    .admin_hash = "hash",
+                    \\    .apps = .{
+                    \\        .{ .name = "First", .key = "first" },
+                    \\        .{ .name = "Second", .key = "second" },
+                    \\    },
+                    \\}
+                , allocator);
+                defer parsed.deinit(allocator);
+            }
+        }.run,
+        .{},
+    );
+}
