@@ -107,9 +107,14 @@ fn parse(source: [:0]const u8, allocator: std.mem.Allocator) !Config {
         }
 
         for (apps, 0..) |app, i| {
+            const name = try allocator.dupe(u8, app.name);
+            errdefer allocator.free(name);
+
+            const key = try allocator.dupe(u8, app.key);
+
             result.apps[i] = .{
-                .name = try allocator.dupe(u8, app.name),
-                .key = try allocator.dupe(u8, app.key),
+                .name = name,
+                .key = key,
                 .active = app.active,
             };
             copied += 1;
