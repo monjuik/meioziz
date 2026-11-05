@@ -19,7 +19,7 @@ This app is very tiny, the events are small – as amoeba's poke. Meiosis is a t
 
 ## Binaries
 
-Prebuilt binaries are provided for Linux x86_64, other platforms can build from source with Zig 0.17.0.
+Prebuilt binaries are provided for Linux x86_64, other platforms can build from source with Zig. Minimal version is `0.17.0`, recommended – `0.17.1`.
 
 ## How to use
 
